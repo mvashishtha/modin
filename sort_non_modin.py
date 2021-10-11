@@ -42,18 +42,33 @@ shuffle_actors = [ShuffleActor.remote(i) for i in range(num_splits)]
 parts = unwrap_partitions(df, axis=0)
 ray.get([actor.add_pool.remote(shuffle_actors) for actor in shuffle_actors])
 
+print('read CSV and starting timed portion.')
+
 start = time.time()
 columns = "col2"
+# last quantile is 99.0 but digitize uses <=: https://numpy.org/doc/stable/reference/generated/numpy.digitize.html
+# Solution: right bin is max and use right=True so last bin is <= max and first bin is <= 1/N quantile
+# so every value is captured.
+
+# Calculatirng qunatiles is really slow!
 quants = [np.quantile(df[columns], i / num_splits) for i in range(1, num_splits + 1)]
+
+print('got quants!')
 
 def split_func(df):
     df = df.sort_values(columns)
-    t = np.digitize(df[columns].squeeze(), quants)
+    t = np.digitize(df[columns].squeeze(), quants, right=True)
     grouper = df.groupby(t)
     return [grouper.get_group(i) if i in grouper.keys else pandas.DataFrame(columns=df.columns) for i in range(len(quants))]
 
 ray.get([actor.split_df.remote(partition, split_func) for actor, partition in zip(shuffle_actors, parts)])
+print('finished splitting')
 new_parts = [actor.combine_and_apply_dfs.remote(lambda x: x.sort_values(columns)) for actor in shuffle_actors]
+print('finished combining and applying')
 df = from_partitions(new_parts, axis=0)
 print(f'time elapsed: {time.time() - start}')
 
+# BUG: why is the result missing many rows?
+# [1038220 rows x 256 columns] with default right=False (max value is incorrectly 98)
+# A run wtih right=True returns [443361 rows x 256 columns]
+# Then ray.shutdown(), then right=True returns [1048576 rows x 256 columns] and looks correct
