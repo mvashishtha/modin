@@ -9,11 +9,11 @@ import modin.pandas as pd
 import time
 
 ray.init()
-num_partitions = 8
-num_actors = 2
+num_partitions = 16
+num_actors = 16
 NPartitions.put(num_partitions)
 
-@ray.remote
+@ray.remote(num_cpus=0.001)
 class ShuffleActor(object):
 
     def __init__(self, pos):
@@ -63,7 +63,13 @@ columns = "col2"
 # Solution: right bin is max and use right=True so last bin is <= max and first bin is <= 1/N quantile
 # so every value is captured.
 # Calculating qunatiles is really slow!
-quants = [np.quantile(df[columns], i / num_actors) for i in range(1, num_actors + 1)]
+sample = df.iloc[
+    np.sort(
+        np.random.choice(len(df), size=10*num_partitions, replace=False)
+    )
+]._to_pandas()
+quants = [np.quantile(sample[columns], i / num_actors) for i in range(1, num_actors + 1)]
+quants[-1] = float('inf')
 print(f'Got quantiles at: {time.time() - start}')
 
 ray.get([shuffle_actors[i % num_actors].split_df.remote(partition, split_func) for i, partition in enumerate(parts)])
