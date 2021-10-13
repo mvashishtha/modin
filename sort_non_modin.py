@@ -1,7 +1,6 @@
 
-num_splits = 16
-
-from modin.distributed.dataframe.pandas import unwrap_partitions
+from modin.config import NPartitions
+from modin.distributed.dataframe.pandas import partitions, unwrap_partitions
 from modin.distributed.dataframe.pandas import from_partitions
 import numpy as np
 import pandas
@@ -10,9 +9,11 @@ import modin.pandas as pd
 import time
 
 ray.init()
+num_partitions = 8
+num_actors = 2
+NPartitions.put(num_partitions)
 
-
-@ray.remote(num_cpus=0)
+@ray.remote
 class ShuffleActor(object):
 
     def __init__(self, pos):
@@ -24,7 +25,6 @@ class ShuffleActor(object):
         self.other_actors = other_actors
 
     def combine_and_apply_dfs(self, func):
-        print(f"Self position: {self.num_position}, Length: {len(self.list_of_dfs)}")
         full_df = pandas.concat(self.list_of_dfs)
         return func(full_df)
 
@@ -32,43 +32,45 @@ class ShuffleActor(object):
         self.list_of_dfs.append(df)
 
     def split_df(self, df, split_func):
+        print(f'Actor {self.num_position} split_df: Starting at time: {time.time() - start}')        
         [self.other_actors[i].append_df.remote(df_split)
             if i != self.num_position
-            else self.append_df(df_split) for i, df_split in enumerate(split_func(df))
+            else self.append_df(df_split) for i, df_split in enumerate(split_func(df, self.num_position))
         ]
+        print(f'Actor {self.num_position} split_df: Finished at time: {time.time() - start}')
+
+def split_func(df, actor_position):
+    print(f'Actor {actor_position} split_func: Starting at time: {time.time() - start}')
+    df = df.sort_values(columns)
+    print(f'Actor {actor_position} split_func: finished sort at time: {time.time() - start}')        
+    t = np.digitize(df[columns].squeeze(), quants, right=True)
+    print(f'Actor {actor_position} split_func: finished digitize at time: {time.time() - start}')     
+    grouper = df.groupby(t)
+    print(f'Actor {actor_position} split_func: finished groupby at time: {time.time() - start}')      
+    return [grouper.get_group(i) if i in grouper.keys else pandas.DataFrame(columns=df.columns) for i in range(len(quants))]
 
 df = pd.read_csv("test_1mx256.csv")
-shuffle_actors = [ShuffleActor.remote(i) for i in range(num_splits)]
-parts = unwrap_partitions(df, axis=0)
-ray.get([actor.add_pool.remote(shuffle_actors) for actor in shuffle_actors])
-
-print('read CSV and starting timed portion.')
-
 start = time.time()
+
+shuffle_actors = [ShuffleActor.remote(i) for i in range(num_actors)]
+parts = unwrap_partitions(df, axis=0)
+assert len(parts) == num_partitions, f"Dataframe was partitioned into {len(parts)} partitions instead of {num_partitions} partitions."
+ray.get([actor.add_pool.remote(shuffle_actors) for actor in shuffle_actors])
+print(f'Set up {len(shuffle_actors)} actors and {len(parts)} partitions at: {time.time() - start}')
+
 columns = "col2"
 # last quantile is 99.0 but digitize uses <=: https://numpy.org/doc/stable/reference/generated/numpy.digitize.html
 # Solution: right bin is max and use right=True so last bin is <= max and first bin is <= 1/N quantile
 # so every value is captured.
+# Calculating qunatiles is really slow!
+quants = [np.quantile(df[columns], i / num_actors) for i in range(1, num_actors + 1)]
+print(f'Got quantiles at: {time.time() - start}')
 
-# Calculatirng qunatiles is really slow!
-quants = [np.quantile(df[columns], i / num_splits) for i in range(1, num_splits + 1)]
+ray.get([shuffle_actors[i % num_actors].split_df.remote(partition, split_func) for i, partition in enumerate(parts)])
+print(f'Split dataframes at: {time.time() - start}')
 
-print('got quants!')
-
-def split_func(df):
-    df = df.sort_values(columns)
-    t = np.digitize(df[columns].squeeze(), quants, right=True)
-    grouper = df.groupby(t)
-    return [grouper.get_group(i) if i in grouper.keys else pandas.DataFrame(columns=df.columns) for i in range(len(quants))]
-
-ray.get([actor.split_df.remote(partition, split_func) for actor, partition in zip(shuffle_actors, parts)])
-print('finished splitting')
 new_parts = [actor.combine_and_apply_dfs.remote(lambda x: x.sort_values(columns)) for actor in shuffle_actors]
-print('finished combining and applying')
-df = from_partitions(new_parts, axis=0)
-print(f'time elapsed: {time.time() - start}')
+print(f'Combined dataframes and sorted each partition at: {time.time() - start}')
 
-# BUG: why is the result missing many rows?
-# [1038220 rows x 256 columns] with default right=False (max value is incorrectly 98)
-# A run wtih right=True returns [443361 rows x 256 columns]
-# Then ray.shutdown(), then right=True returns [1048576 rows x 256 columns] and looks correct
+df = from_partitions(new_parts, axis=0)
+print(f'Built dataframe from {len(new_parts)} parts and finished at: {time.time() - start}')
