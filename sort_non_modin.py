@@ -38,7 +38,7 @@ class ShuffleActor(object):
             self.other_actors[i].append_df.remote(df_split)
             if i != self.num_position
             else self.append_df(df_split)
-            for i, df_split in enumerate(split_func(df, self.num_position))
+            for i, df_split in enumerate(timed_split_func(df, self.num_position))
         ]
         print(
             f"Actor {self.num_position} split_df: Finished at time: {time.time() - start}"
@@ -46,19 +46,24 @@ class ShuffleActor(object):
 
 
 def split_func(df, actor_position):
-    print(f"Actor {actor_position} split_func: Starting at time: {time.time() - start}")
     df = df.sort_values(columns)
     t = np.digitize(df[columns].squeeze(), quants, right=True)
     grouper = df.groupby(t)
-    print(
-        f"Actor {actor_position} split_func: finished groupby at time: {time.time() - start}"
-    )
     return [
         grouper.get_group(i)
         if i in grouper.keys
         else pandas.DataFrame(columns=df.columns)
         for i in range(len(quants))
     ]
+
+
+def timed_split_func(df, actor_position):
+    print(f"Actor {actor_position} split_func: Starting at time: {time.time() - start}")
+    split = split_func(df, actor_position)
+    print(
+        f"Actor {actor_position} split_func: finished groupby at time: {time.time() - start}"
+    )
+    return split
 
 
 df = pd.read_csv("test_1mx256.csv")
@@ -99,7 +104,9 @@ ray.get(
 print(f"Split dataframes at: {time.time() - start}")
 
 new_parts = [
-    actor.combine_and_apply_dfs.remote(lambda x: x.sort_values(columns))
+    actor.combine_and_apply_dfs.remote(
+        lambda x: x.sort_values(columns),
+    )
     for actor in shuffle_actors
 ]
 print(f"Combined dataframes and sorted each partition at: {time.time() - start}")
