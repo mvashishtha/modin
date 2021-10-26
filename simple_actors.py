@@ -38,13 +38,17 @@ class ShuffleActor(object):
         #     if i != self.num_position
         # ]
         self.append_df(self.num_position)
-        return ray.get(
-            [
-                actor.append_df.remote(self.num_position)
-                for i, actor in enumerate(self.other_actors)
-                if i != self.num_position
-            ]
+        return [
+            actor.append_df.remote(self.num_position)
+            for i, actor in enumerate(self.other_actors)
+            if i != self.num_position
+        ]
+
+    def split_df(self):
+        print(
+            f"starting split_df for actor {self.num_position} at {time.time() - start}"
         )
+        return 1
 
     def print_list_of_dfs(self):
         print(
@@ -56,15 +60,16 @@ start = time.time()
 shuffle_actors = [ShuffleActor.remote(i) for i in range(num_actors)]
 ray.get([actor.add_pool.remote(shuffle_actors) for actor in shuffle_actors])
 print(f"time to add pools: {time.time() - start}")
-# ray.get(
-#     [
-#         ref
-#         for sublist in ray.get(
-#             [actor.append_splits.remote() for actor in shuffle_actors]
-#         )
-#         for ref in sublist
-#     ]
-# )
-ray.get([actor.append_splits.remote() for actor in shuffle_actors])
+ray.get([actor.split_df.remote() for actor in shuffle_actors])
+print(f"Time to split dfs: {time.time() - start}")
+ray.get(
+    [
+        ref
+        for sublist in ray.get(
+            [actor.append_splits.remote() for actor in shuffle_actors]
+        )
+        for ref in sublist
+    ]
+)
 print(f"time to append splits: {time.time() - start}")
 ray.get([actor.print_list_of_dfs.remote() for actor in shuffle_actors])

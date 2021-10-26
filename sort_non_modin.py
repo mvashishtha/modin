@@ -34,7 +34,7 @@ class ShuffleActor(object):
 
     def split_df(self, df, split_func, columns, quants, partition_index):
         print(
-            f"Actor {self.num_position} split_df: Starting at time: {time.time() - start}"
+            f"Actor {self.num_position} split_df on partition {partition_index}: Starting at time: {time.time() - start}"
         )
         splits = split_func(df, self.num_position, columns, quants, partition_index)
         self.append_df(splits[self.num_position])
@@ -44,7 +44,7 @@ class ShuffleActor(object):
             if i != self.num_position
         ]
         print(
-            f"Actor {self.num_position} split_df: Finished at time: {time.time() - start}"
+            f"Actor {self.num_position} split_df on partition {partition_index}: Finished at time: {time.time() - start}"
         )
         return refs
 
@@ -62,7 +62,9 @@ def split_func(df, actor_position, columns, quants, partition_index):
         else pandas.DataFrame(columns=df.columns)
         for i in range(len(quants))
     ]
-    print(f"Actor {actor_position} split_func: finished at time: {time.time() - start}")
+    print(
+        f"Actor {actor_position} split_func on partition {partition_index}: finished at time: {time.time() - start}"
+    )
     return splits
 
 
@@ -74,6 +76,7 @@ def sorted_dataframe():
 
     shuffle_actors = [ShuffleActor.remote(i) for i in range(num_actors)]
     parts = unwrap_partitions(df, axis=0)
+    # print(f"Got partitions at: {time.time() - start}")
     assert (
         len(parts) == num_partitions
     ), f"Dataframe was partitioned into {len(parts)} partitions instead of {num_partitions} partitions."
@@ -99,20 +102,16 @@ def sorted_dataframe():
     )  # Because of sampling, the max quantile may not be the actual max
     print(f"Got quantiles at: {time.time() - start}")
 
-    ray.get(
+    appender_lists = ray.get(
         [
-            ref
-            for sublist in ray.get(
-                [
-                    shuffle_actors[i % num_actors].split_df.remote(
-                        partition, split_func, columns, quants, i
-                    )
-                    for i, partition in enumerate(parts)
-                ]
+            shuffle_actors[i % num_actors].split_df.remote(
+                partition, split_func, columns, quants, i
             )
-            for ref in sublist
+            for i, partition in enumerate(parts)
         ]
     )
+    print(f"Got appenders at: {time.time() - start}")
+    ray.get([ref for sublist in appender_lists for ref in sublist])
     print(f"split dataframes at: {time.time() - start}")
 
     new_parts = [
@@ -133,3 +132,4 @@ def sorted_dataframe():
 
 
 df = sorted_dataframe()
+assert len(df) == 1048576
