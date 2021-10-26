@@ -7,6 +7,7 @@ import numpy as np
 import pandas
 import ray
 import modin.pandas as pd
+import os
 import time
 
 ray.init(num_cpus=8)
@@ -26,27 +27,43 @@ class ShuffleActor(object):
         self.other_actors = other_actors
 
     def combine_and_apply_dfs(self, func):
-        full_df = pandas.concat(self.list_of_dfs)
+        full_df = pandas.concat(
+            pandas.read_pickle(f"/tmp/shuffle/splits/{self.num_position}/{i}")
+            for i in range(num_actors)
+        )
         return func(full_df)
 
-    def append_df(self, df):
-        self.list_of_dfs.append(df)
+    def append_df(self, df, from_actor):
+        print(f"appending one df from actor {from_actor} to actor {self.num_position}")
+        if type(df) != type(0):
+            self.list_of_dfs.append(df)
+        print(
+            f"done appending one df from actor {from_actor} to actor {self.num_position}"
+        )
+        return
 
     def split_df(self, df, split_func, columns, quants, partition_index):
         print(
-            f"Actor {self.num_position} split_df on partition {partition_index}: Starting at time: {time.time() - start}"
+            f"Actor {self.num_position} split_df on partition {self.num_position}: Starting at time: {time.time() - start}"
+        )
+        df_path = f"/tmp/shuffle/{self.num_position}"
+        df = pandas.read_pickle(df_path)
+        print(
+            f"Actor {self.num_position} split_df on partition {self.num_position}: has read df at time: {time.time() - start}"
         )
         splits = split_func(df, self.num_position, columns, quants, partition_index)
-        self.append_df(splits[self.num_position])
-        refs = [
-            self.other_actors[i].append_df.remote(df_split)
-            for i, df_split in enumerate(splits)
-            if i != self.num_position
-        ]
+        for i, split in enumerate(splits):
+            split.to_pickle(f"/tmp/shuffle/splits/{i}/{self.num_position}")
+        # self.append_df(splits[self.num_position], self.num_position)
+        # refs = [
+        #     self.other_actors[i].append_df.remote(df, self.num_position)
+        #     for i, df_split in enumerate(splits)
+        #     if i != self.num_position
+        # ]
         print(
-            f"Actor {self.num_position} split_df on partition {partition_index}: Finished at time: {time.time() - start}"
+            f"Actor {self.num_position} split_df on partition {self.num_position}: Finished at time: {time.time() - start}"
         )
-        return refs
+        return 0
 
 
 def split_func(df, actor_position, columns, quants, partition_index):
@@ -75,8 +92,8 @@ def sorted_dataframe():
     df = pd.read_csv("test_1mx256.csv")
 
     shuffle_actors = [ShuffleActor.remote(i) for i in range(num_actors)]
-    parts = unwrap_partitions(df, axis=0)
-    # print(f"Got partitions at: {time.time() - start}")
+    parts = ray.get(unwrap_partitions(df, axis=0))
+    print(f"Got partitions at: {time.time() - start}")
     assert (
         len(parts) == num_partitions
     ), f"Dataframe was partitioned into {len(parts)} partitions instead of {num_partitions} partitions."
@@ -90,28 +107,30 @@ def sorted_dataframe():
     # Solution: right bin is max and use right=True so last bin is <= max and first bin is <= 1/N quantile
     # so every value is captured.
     # Calculating qunatiles is really slow!
-    # sample = df.iloc[
-    #     np.sort(np.random.choice(len(df), size=10 * num_partitions, replace=False))
-    # ]._to_pandas()
-    # quants = [
-    #     np.quantile(sample[columns], i / num_actors) for i in range(1, num_actors + 1)
-    # ]
-    quants = [100 * x / num_actors for x in range(1, num_actors + 1)]
+    sample = df.iloc[
+        np.sort(np.random.choice(len(df), size=10 * num_partitions, replace=False))
+    ]._to_pandas()
+    quants = [
+        np.quantile(sample[columns], i / num_actors) for i in range(1, num_actors + 1)
+    ]
+    # quants = [100 * x / num_actors for x in range(1, num_actors + 1)]
     quants[-1] = float(
         "inf"
     )  # Because of sampling, the max quantile may not be the actual max
     print(f"Got quantiles at: {time.time() - start}")
 
+    for i, partition in enumerate(parts):
+        partition.to_pickle(f"/tmp/shuffle/{i}")
     appender_lists = ray.get(
         [
             shuffle_actors[i % num_actors].split_df.remote(
-                partition, split_func, columns, quants, i
+                0, split_func, columns, quants, i
             )
             for i, partition in enumerate(parts)
         ]
     )
     print(f"Got appenders at: {time.time() - start}")
-    ray.get([ref for sublist in appender_lists for ref in sublist])
+    # ray.get([ref for sublist in appender_lists for ref in sublist])
     print(f"split dataframes at: {time.time() - start}")
 
     new_parts = [
