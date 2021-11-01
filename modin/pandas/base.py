@@ -2928,10 +2928,8 @@ class BasePandasDataset(object):
         return arr
 
     def __array_wrap__(self, result, context=None):
-        # TODO: This is very inefficient. __array__ and as_matrix have been
-        # changed to call the more efficient to_numpy, but this has been left
-        # unchanged since we are not sure of its purpose.
-        return self._default_to_pandas("__array_wrap__", result, context=context)
+        arr = self.to_numpy()
+        return
 
     def __copy__(self, deep=True):
         return self.copy(deep=deep)
