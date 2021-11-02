@@ -55,9 +55,11 @@ def _read(**kwargs):
     """
     from modin.core.execution.dispatching.factories.dispatcher import FactoryDispatcher
 
+    print("starting _read")
     Engine.subscribe(_update_engine)
     squeeze = kwargs.pop("squeeze", False)
     pd_obj = FactoryDispatcher.read_csv(**kwargs)
+    print("got pd_obj from read_csv")
     # This happens when `read_csv` returns a TextFileReader object for iterating through
     if isinstance(pd_obj, pandas.io.parsers.TextFileReader):
         reader = pd_obj.read

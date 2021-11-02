@@ -72,6 +72,7 @@ class CSVDispatcher(TextFileDispatcher):
             if isinstance(filepath_or_buffer, str)
             else cls.get_path_or_buffer(filepath_or_buffer)
         )
+        print("got filepath_or_buffer_md")
         compression_infered = cls.infer_compression(
             filepath_or_buffer, kwargs.get("compression")
         )
@@ -131,7 +132,15 @@ class CSVDispatcher(TextFileDispatcher):
             compression=compression_infered,
         )
 
-        with OpenFile(filepath_or_buffer_md, "rb", compression_infered) as f:
+        if cls.pathlib_or_pypath(filepath_or_buffer) or isinstance(
+            filepath_or_buffer, str
+        ):
+            open_file = OpenFile(filepath_or_buffer_md, "rb", compression_infered)
+        else:
+            open_file = filepath_or_buffer_md
+
+        with open_file as f:
+            print("oppened file!")
             old_pos = f.tell()
             fio = io.TextIOWrapper(f, encoding=encoding, newline="")
             newline, quotechar = cls.compute_newline(
@@ -150,6 +159,7 @@ class CSVDispatcher(TextFileDispatcher):
                 header_size=header_size,
                 pre_reading=pre_reading,
             )
+        print(f"got {len(splits)} splits")
 
         partition_ids, index_ids, dtypes_ids = cls._launch_tasks(
             splits, **partition_kwargs
@@ -199,8 +209,8 @@ class CSVDispatcher(TextFileDispatcher):
         if isinstance(filepath_or_buffer, str):
             if not cls.file_exists(filepath_or_buffer):
                 return False
-        elif not cls.pathlib_or_pypath(filepath_or_buffer):
-            return False
+        # elif not cls.pathlib_or_pypath(filepath_or_buffer):
+        #     return False
 
         if compression_infered is not None:
             use_modin_impl = compression_infered in ["gzip", "bz2", "xz"] or (
