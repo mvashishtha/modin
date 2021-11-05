@@ -128,6 +128,7 @@ def read_csv(
     float_precision=None,
     storage_options: StorageOptions = None,
 ):
+    print("maheshs modin starting read_csv")
     # ISSUE #2408: parse parameter shared with pandas read_csv and read_table and update with provided args
     _pd_read_csv_signature = {
         val.name for val in inspect.signature(pandas.read_csv).parameters.values()

@@ -202,6 +202,7 @@ class PandasParser(object):
             processing, object type depends on the child class `parse` function
             result type.
         """
+        print("defaulting to pandas in single_worker_read")
         ErrorMessage.default_to_pandas("Parameters provided")
         # Use default args for everything
         pandas_frame = cls.parse(fname, **kwargs)

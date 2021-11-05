@@ -125,6 +125,7 @@ class CSVDispatcher(TextFileDispatcher):
         use_modin_impl = cls._read_csv_check_support(
             filepath_or_buffer, kwargs, compression_infered
         )
+        print(f"in CSVDispatcher, _read finds use_modin_impl: {use_modin_impl}")
         if not use_modin_impl:
             return cls.single_worker_read(filepath_or_buffer, **kwargs)
 
