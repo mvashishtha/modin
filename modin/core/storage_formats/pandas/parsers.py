@@ -39,6 +39,7 @@ Data parsing mechanism differs depending on the data format type:
   parameters are passed into `pandas.read_sql` function without modification.
 """
 
+from contextlib import ExitStack
 from collections import OrderedDict
 from io import BytesIO, TextIOWrapper
 import numpy as np
@@ -222,6 +223,38 @@ class PandasParser(object):
     infer_compression = infer_compression
 
 
+def pathlib_or_pypath(filepath_or_buffer):
+    """
+    Check if `filepath_or_buffer` is instance of `py.path.local` or `pathlib.Path`.
+
+    Parameters
+    ----------
+    filepath_or_buffer : str, path object or file-like object
+        `filepath_or_buffer` parameter of `read_csv` function.
+
+    Returns
+    -------
+    bool
+        Whether or not `filepath_or_buffer` is instance of `py.path.local`
+        or `pathlib.Path`.
+    """
+    try:
+        import py
+
+        if isinstance(filepath_or_buffer, py.path.local):
+            return True
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        import pathlib
+
+        if isinstance(filepath_or_buffer, pathlib.Path):
+            return True
+    except ImportError:  # pragma: no cover
+        pass
+    return False
+
+
 @doc(_doc_pandas_parser_class, data_type="CSV files")
 class PandasCSVParser(PandasParser):
     @staticmethod
@@ -233,12 +266,20 @@ class PandasCSVParser(PandasParser):
         end = kwargs.pop("end", None)
         header_size = kwargs.pop("header_size", None)
         encoding = kwargs.get("encoding", None)
+        to_bytes = lambda str: str if type(str) == bytes else str.encode()
         if start is not None and end is not None:
             # pop "compression" from kwargs because bio is uncompressed
-            with OpenFile(fname, "rb", kwargs.pop("compression", "infer")) as bio:
+            with ExitStack() as stack:
+                if pathlib_or_pypath(fname) or isinstance(fname, str):
+                    bio = stack.enter_context(
+                        OpenFile(fname, "rb", kwargs.pop("compression", "infer"))
+                    )
+                else:
+                    bio = fname
                 # In this case we beware that first line can contain BOM, so
                 # adding this line to the `header` for reading and then skip it
                 header = b""
+                bio_original_pos = bio.tell()
                 if encoding and (
                     "utf" in encoding
                     and "8" not in encoding
@@ -247,25 +288,40 @@ class PandasCSVParser(PandasParser):
                 ):
                     # do not 'close' the wrapper - underlying buffer is managed by `bio` handle
                     fio = TextIOWrapper(bio, encoding=encoding, newline="")
+                    # print(
+                    #     f"in first case. tell() is {fio.tell()} and read() is {fio.read()}"
+                    # )
+                    # fio.seek(bio_original_pos)
                     if header_size == 0:
                         header = fio.readline().encode(encoding)
                         kwargs["skiprows"] = 1
                     for _ in range(header_size):
                         header += fio.readline().encode(encoding)
                 elif encoding is not None:
+                    # print(
+                    #     f"in second case. tell() is {bio.tell()} and read() is {bio.read()}"
+                    # )
+                    # bio.seek(bio_original_pos)
                     if header_size == 0:
-                        header = bio.readline()
+                        header = to_bytes(bio.readline())
                         # `skiprows` can be only None here, so don't check it's type
                         # and just set to 1
                         kwargs["skiprows"] = 1
                     for _ in range(header_size):
-                        header += bio.readline()
+                        header += to_bytes(bio.readline())
                 else:
+                    # print(
+                    #     f"in third case. tell() is {bio.tell()} and read() is {bio.read()}"
+                    # )
+                    # bio.seek(bio_original_pos)
                     for _ in range(header_size):
-                        header += bio.readline()
+                        header += to_bytes(bio.readline())
 
                 bio.seek(start)
-                to_read = header + bio.read(end - start)
+                to_read = header + to_bytes(bio.read(end - start))
+            # print(
+            #     f"finished reading file for read_csv. got header {header} and to_read {to_read}"
+            # )
             pandas_df = pandas.read_csv(BytesIO(to_read), **kwargs)
         else:
             # This only happens when we are reading with only one worker (Default)

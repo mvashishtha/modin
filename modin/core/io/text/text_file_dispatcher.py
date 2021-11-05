@@ -22,6 +22,7 @@ from modin.core.io.file_dispatcher import FileDispatcher
 from modin.core.storage_formats.pandas.utils import compute_chunksize
 from modin.utils import _inherit_docstrings
 from modin.core.io.text.utils import CustomNewlineIterator
+from io import BytesIO
 import numpy as np
 import warnings
 import os
@@ -30,6 +31,7 @@ from typing import Union, Sequence, Optional, Tuple
 import pandas
 import pandas._libs.lib as lib
 from pandas.core.dtypes.common import is_list_like
+import time
 
 from modin.config import NPartitions
 
@@ -177,6 +179,8 @@ class TextFileDispatcher(FileDispatcher):
         """
         if is_quoting:
             chunk = f.read(offset_size)
+            if type(chunk) != bytes:
+                chunk = chunk.encode()
             outside_quotes = not chunk.count(quotechar) % 2
         else:
             f.seek(offset_size, os.SEEK_CUR)
@@ -381,6 +385,8 @@ class TextFileDispatcher(FileDispatcher):
             iterator = f
 
         for line in iterator:
+            if type(line) != bytes:
+                line = line.encode()
             if is_quoting and line.count(quotechar) % 2:
                 outside_quotes = not outside_quotes
             if outside_quotes:
@@ -596,7 +602,31 @@ class TextFileDispatcher(FileDispatcher):
         partition_ids = []
         index_ids = []
         dtypes_ids = []
+        file = partition_kwargs["fname"]
+        to_bytes = (
+            lambda string_or_bytes: string_or_bytes
+            if type(string_or_bytes) == bytes
+            else string_or_bytes.encode()
+        )
+        if not (cls.pathlib_or_pypath(file) or isinstance(file, str)):
+            original_pos = file.tell()
         for start, end in splits:
+            if not (cls.pathlib_or_pypath(file) or isinstance(file, str)):
+                header = file.readline()
+                file.seek(start)
+                new_file = BytesIO(to_bytes(header) + to_bytes(file.read(end - start)))
+                # print(
+                #     f"updating kwargs for new_file {BytesIO(to_bytes(header) + to_bytes(file.read(end - start))).read()} and start {start} and end {end}"
+                # )
+                partition_kwargs.update({"fname": new_file})
+                start = len(to_bytes(header))
+                end = end - start + len(to_bytes(header))
+                file.seek(original_pos)
+            else:
+                # print(
+                #     f"updating kwargs for new_file {str(file)} at start {start} and end {end}"
+                # )
+                pass
             partition_kwargs.update({"start": start, "end": end})
             partition_id = cls.deploy(
                 cls.parse, partition_kwargs.get("num_splits") + 2, partition_kwargs

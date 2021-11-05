@@ -18,6 +18,7 @@ from modin.core.io.text.text_file_dispatcher import (
     TextFileDispatcher,
     ColumnNamesTypes,
 )
+from contextlib import ExitStack
 import pandas
 from pandas.core.dtypes.common import is_list_like
 from csv import QUOTE_NONE, Dialect
@@ -34,6 +35,29 @@ ReadCsvKwargsType = Dict[
     str, Union[str, int, bool, dict, object, Sequence, Callable, Dialect, None]
 ]
 IndexColType = Union[int, str, bool, Sequence[int], Sequence[str], None]
+
+
+class BytesIOWrapper(io.BufferedReader):
+    """Wrap a buffered bytes stream over TextIOBase string stream."""
+
+    def __init__(self, text_io_buffer, encoding=None, errors=None, **kwargs):
+        super(BytesIOWrapper, self).__init__(text_io_buffer, **kwargs)
+        self.encoding = encoding or text_io_buffer.encoding or "utf-8"
+        self.errors = errors or text_io_buffer.errors or "strict"
+
+    def _encoding_call(self, method_name, *args, **kwargs):
+        raw_method = getattr(self.raw, method_name)
+        val = raw_method(*args, **kwargs)
+        return val.encode(self.encoding, errors=self.errors)
+
+    def read(self, size=-1):
+        return self._encoding_call("read", size)
+
+    def read1(self, size=-1):
+        return self._encoding_call("read1", size)
+
+    def peek(self, size=-1):
+        return self._encoding_call("peek", size)
 
 
 class CSVDispatcher(TextFileDispatcher):
@@ -110,7 +134,11 @@ class CSVDispatcher(TextFileDispatcher):
         pass_names = names in [None, lib.no_default] and (
             skiprows is not None or kwargs.get("skipfooter", 0) != 0
         )
-
+        if not (
+            cls.pathlib_or_pypath(filepath_or_buffer)
+            or isinstance(filepath_or_buffer, str)
+        ):
+            old_pos = filepath_or_buffer.tell()
         pd_df_metadata = pandas.read_csv(
             filepath_or_buffer,
             **dict(kwargs, nrows=1, skipfooter=0, index_col=index_col),
@@ -132,16 +160,24 @@ class CSVDispatcher(TextFileDispatcher):
             compression=compression_infered,
         )
 
-        if cls.pathlib_or_pypath(filepath_or_buffer) or isinstance(
-            filepath_or_buffer, str
-        ):
-            open_file = OpenFile(filepath_or_buffer_md, "rb", compression_infered)
-        else:
-            open_file = filepath_or_buffer_md
-
-        with open_file as f:
+        with ExitStack() as stack:
+            print(
+                f"filepath_or_buffer_md is a {type(filepath_or_buffer_md)} and is {str(filepath_or_buffer_md)}"
+            )
+            if cls.pathlib_or_pypath(filepath_or_buffer_md) or isinstance(
+                filepath_or_buffer_md, str
+            ):
+                f = stack.enter_context(
+                    OpenFile(filepath_or_buffer_md, "rb", compression_infered)
+                )
+            else:
+                f = filepath_or_buffer_md
+            print(f"f is a {type(f)} and is {str(f)}")
             print("oppened file!")
-            old_pos = f.tell()
+            if cls.pathlib_or_pypath(filepath_or_buffer) or isinstance(
+                filepath_or_buffer, str
+            ):
+                old_pos = f.tell()
             fio = io.TextIOWrapper(f, encoding=encoding, newline="")
             newline, quotechar = cls.compute_newline(
                 fio, encoding, kwargs.get("quotechar", '"')
@@ -159,6 +195,7 @@ class CSVDispatcher(TextFileDispatcher):
                 header_size=header_size,
                 pre_reading=pre_reading,
             )
+            f.seek(old_pos)
         print(f"got {len(splits)} splits")
 
         partition_ids, index_ids, dtypes_ids = cls._launch_tasks(
