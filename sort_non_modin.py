@@ -13,6 +13,8 @@ ray.init(num_cpus=8)
 num_partitions = 8
 num_actors = 8
 NPartitions.put(num_partitions)
+df = pd.read_csv("test_1mx256.csv")
+start = time.time()
 
 
 @ray.remote
@@ -71,12 +73,10 @@ def split_func(df, actor_position, columns, quants, partition_index):
 start = time.time()
 
 
-def sorted_dataframe():
-    df = pd.read_csv("test_1mx256.csv")
-
+def sorted_dataframe(df):
     shuffle_actors = [ShuffleActor.remote(i) for i in range(num_actors)]
     parts = unwrap_partitions(df, axis=0)
-    # print(f"Got partitions at: {time.time() - start}")
+    print(f"Got partitions at: {time.time() - start}")
     assert (
         len(parts) == num_partitions
     ), f"Dataframe was partitioned into {len(parts)} partitions instead of {num_partitions} partitions."
@@ -131,5 +131,5 @@ def sorted_dataframe():
     return df
 
 
-df = sorted_dataframe()
+df = sorted_dataframe(df)
 assert len(df) == 1048576
