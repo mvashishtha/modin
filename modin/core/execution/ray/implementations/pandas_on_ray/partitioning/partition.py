@@ -70,9 +70,16 @@ class PandasOnRayDataframePartition(PandasDataframePartition):
         pandas.DataFrame
             The object from the Plasma store.
         """
+        import time
+
         if len(self.call_queue):
+            s = time.time()
             self.drain_call_queue()
-        return ray.get(self.oid)
+            print(f"time to drain call queue: {time.time() - s}")
+        s = time.time()
+        result = ray.get(self.oid)
+        print(f"time to ray.get: {time.time() - s}")
+        return result
 
     def apply(self, func, *args, **kwargs):
         """

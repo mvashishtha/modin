@@ -1328,7 +1328,16 @@ class PandasQueryCompiler(BaseQueryCompiler):
     # Map partitions operations
     # These operations are operations that apply a function to every partition.
     abs = Map.register(pandas.DataFrame.abs, dtypes="copy")
-    applymap = Map.register(pandas.DataFrame.applymap)
+
+    def timed_applymap(*args, **kwargs):
+        import time
+
+        s = time.time()
+        result = pandas.DataFrame.applymap(*args, **kwargs)
+        print(f"time to applymap to one dataframe: {time.time() - s}")
+        return result
+
+    applymap = Map.register(timed_applymap)
     conj = Map.register(lambda df, *args, **kwargs: pandas.DataFrame(np.conj(df)))
     invert = Map.register(pandas.DataFrame.__invert__)
     isin = Map.register(pandas.DataFrame.isin, dtypes=np.bool)

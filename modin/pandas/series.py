@@ -661,6 +661,9 @@ class Series(BasePandasDataset):
         """
         Invoke function on values of Series.
         """
+        import time
+
+        s = time.time()
         self._validate_function(func)
         # apply and aggregate have slightly different behaviors, so we have to use
         # each one separately to determine the correct return type. In the case of
