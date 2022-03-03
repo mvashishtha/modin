@@ -2633,8 +2633,7 @@ class PandasDataframe(object):
             New Modin DataFrame.
         """
         by_parts = by if by is None else by._partitions
-        if by is None:
-            self._propagate_index_objs(axis=0)
+        self._propagate_index_objs(axis=0)
 
         if apply_indices is not None:
             numeric_indices = self.axes[axis ^ 1].get_indexer_for(apply_indices)
