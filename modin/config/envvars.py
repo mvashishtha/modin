@@ -384,6 +384,7 @@ class OmnisciLaunchParameters(EnvironmentVariable, type=dict):
         "enable_lazy_fetch": 0,
         "null_div_by_zero": 1,
         "enable_watchdog": 0,
+        "enable_thrift_logs": 0,
     }
 
     @classmethod
@@ -445,6 +446,20 @@ class MinPartitionSize(EnvironmentVariable, type=int):
         return min_partition_size
 
 
+class TestReadFromSqlServer(EnvironmentVariable, type=bool):
+    """Set to true to test reading from SQL server."""
+
+    varname = "MODIN_TEST_READ_FROM_SQL_SERVER"
+    default = False
+
+
+class TestReadFromPostgres(EnvironmentVariable, type=bool):
+    """Set to true to test reading from Postgres."""
+
+    varname = "MODIN_TEST_READ_FROM_POSTGRES"
+    default = False
+
+
 def _check_vars():
     """
     Check validity of environment variables.
@@ -464,7 +479,7 @@ def _check_vars():
     if unknown:
         warnings.warn(
             f"Found unknown environment variable{'s' if len(unknown) > 1 else ''},"
-            f" please check {'their' if len(unknown) > 1 else 'its'} spelling: "
+            + f" please check {'their' if len(unknown) > 1 else 'its'} spelling: "
             + ", ".join(sorted(unknown))
         )
 

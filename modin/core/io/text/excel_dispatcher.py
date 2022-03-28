@@ -50,8 +50,8 @@ class ExcelDispatcher(TextFileDispatcher):
         ):
             warnings.warn(
                 "Modin only implements parallel `read_excel` with `openpyxl` engine, "
-                'please specify `engine=None` or `engine="openpyxl"` to '
-                "use Modin's parallel implementation."
+                + 'please specify `engine=None` or `engine="openpyxl"` to '
+                + "use Modin's parallel implementation."
             )
             return cls.single_worker_read(io, **kwargs)
         if sys.version_info < (3, 7):
@@ -68,13 +68,13 @@ class ExcelDispatcher(TextFileDispatcher):
         if sheet_name is None or isinstance(sheet_name, list):
             warnings.warn(
                 "`read_excel` functionality is only implemented for a single sheet at a "
-                "time. Multiple sheet reading coming soon!"
+                + "time. Multiple sheet reading coming soon!"
             )
             return cls.single_worker_read(io, **kwargs)
 
         warnings.warn(
             "Parallel `read_excel` is a new feature! Please email "
-            "bug_reports@modin.org if you run into any problems."
+            + "bug_reports@modin.org if you run into any problems."
         )
 
         # NOTE: ExcelReader() in read-only mode does not close file handle by itself
@@ -191,7 +191,9 @@ class ExcelDispatcher(TextFileDispatcher):
                 # If there is no data, exit before triggering computation.
                 if b"</row>" not in chunk and b"</sheetData>" in chunk:
                     break
-                remote_results_list = cls.deploy(cls.parse, num_splits + 2, args)
+                remote_results_list = cls.deploy(
+                    cls.parse, num_returns=num_splits + 2, **args
+                )
                 data_ids.append(remote_results_list[:-2])
                 index_ids.append(remote_results_list[-2])
                 dtypes_ids.append(remote_results_list[-1])

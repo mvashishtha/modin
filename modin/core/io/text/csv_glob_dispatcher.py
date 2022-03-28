@@ -61,7 +61,7 @@ class CSVGlobDispatcher(CSVDispatcher):
             if "*" not in filepath_or_buffer and not is_folder:
                 warnings.warn(
                     "Shell-style wildcard '*' must be in the filename pattern in order to read multiple "
-                    f"files at once. Did you forget it? Passed filename: '{filepath_or_buffer}'"
+                    + f"files at once. Did you forget it? Passed filename: '{filepath_or_buffer}'"
                 )
             if not cls.file_exists(filepath_or_buffer):
                 return cls.single_worker_read(filepath_or_buffer, **kwargs)
@@ -207,7 +207,7 @@ class CSVGlobDispatcher(CSVDispatcher):
 
             for chunks in splits:
                 args.update({"chunks": chunks})
-                partition_id = cls.deploy(cls.parse, num_splits + 2, args)
+                partition_id = cls.deploy(cls.parse, num_returns=num_splits + 2, **args)
                 partition_ids.append(partition_id[:-2])
                 index_ids.append(partition_id[-2])
                 dtypes_ids.append(partition_id[-1])
@@ -239,12 +239,23 @@ class CSVGlobDispatcher(CSVDispatcher):
             # we are not guaranteed to have the correct information regarding how many
             # columns are on each partition.
             column_widths = None
-            # Check if is list of lists
-            if isinstance(parse_dates, list) and isinstance(parse_dates[0], list):
-                for group in parse_dates:
-                    new_col_name = "_".join(group)
-                    column_names = column_names.drop(group).insert(0, new_col_name)
-            # Check if it is a dictionary
+            if isinstance(parse_dates, list):
+                for date in parse_dates:
+                    # Lists within the parse_dates list are sequences of
+                    # CSV columns that are parsed together as a single date
+                    # column. They can be a list of either string column names
+                    # or integer column indices. e.g. if parse_dates is
+                    # [[1, 2]] and columns at indices 1 and 2 are "b" and "c",
+                    # the output dataframe has the single date column "b_c". If
+                    # parse_dates is [["a", 1]] and the column at index 1 is
+                    # named "b", the output dataframe has the single date
+                    # column "a_b".
+                    if isinstance(date, list):
+                        for i, part in enumerate(date):
+                            if isinstance(part, int):
+                                date[i] = column_names[part]
+                        new_col_name = "_".join(date)
+                        column_names = column_names.drop(date).insert(0, new_col_name)
             elif isinstance(parse_dates, dict):
                 for new_col_name, group in parse_dates.items():
                     column_names = column_names.drop(group).insert(0, new_col_name)

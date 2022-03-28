@@ -30,7 +30,7 @@ from pandas.core.dtypes.common import (
     is_datetime_or_timedelta_dtype,
 )
 from pandas.core.base import DataError
-from collections.abc import Iterable, Container
+from collections.abc import Iterable
 from typing import List, Hashable
 import warnings
 
@@ -51,6 +51,7 @@ from modin.core.dataframe.algebra import (
     Binary,
     GroupByReduce,
     groupby_reduce_functions,
+    is_reduce_function,
 )
 from modin.core.dataframe.algebra.default2pandas.groupby import GroupBy, GroupByDefault
 
@@ -263,6 +264,19 @@ class PandasQueryCompiler(BaseQueryCompiler):
     @classmethod
     def from_arrow(cls, at, data_cls):
         return cls(data_cls.from_arrow(at))
+
+    # Dataframe exchange protocol
+
+    def to_dataframe(self, nan_as_null: bool = False, allow_copy: bool = True):
+        return self._modin_frame.__dataframe__(
+            nan_as_null=nan_as_null, allow_copy=allow_copy
+        )
+
+    @classmethod
+    def from_dataframe(cls, df, data_cls):
+        return cls(data_cls.from_dataframe(df))
+
+    # END Dataframe exchange protocol
 
     index = property(_get_axis(0), _set_axis(0))
     columns = property(_get_axis(1), _set_axis(1))
@@ -572,7 +586,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
                         if len(last_col_name) not in (1, self.columns.nlevels):
                             raise ValueError(
                                 "col_fill=None is incompatible "
-                                f"with incomplete column name {last_col_name}"
+                                + f"with incomplete column name {last_col_name}"
                             )
                         col_fill = last_col_name[0]
                     columns_list = new_modin_frame.columns.tolist()
@@ -1113,7 +1127,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         )
     )
 
-    def rolling_corr(self, rolling_args, other, pairwise, *args, **kwargs):
+    def rolling_corr(self, axis, rolling_args, other, pairwise, *args, **kwargs):
         if len(self.columns) > 1:
             return self.default_to_pandas(
                 lambda df: pandas.DataFrame.rolling(df, *rolling_args).corr(
@@ -1127,9 +1141,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
                         other=other, pairwise=pairwise, *args, **kwargs
                     )
                 )
-            )(self)
+            )(self, axis)
 
-    def rolling_cov(self, rolling_args, other, pairwise, ddof, **kwargs):
+    def rolling_cov(self, axis, rolling_args, other, pairwise, ddof, **kwargs):
         if len(self.columns) > 1:
             return self.default_to_pandas(
                 lambda df: pandas.DataFrame.rolling(df, *rolling_args).cov(
@@ -1143,11 +1157,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
                         other=other, pairwise=pairwise, ddof=ddof, **kwargs
                     )
                 )
-            )(self)
+            )(self, axis)
 
-    def rolling_aggregate(self, rolling_args, func, *args, **kwargs):
+    def rolling_aggregate(self, axis, rolling_args, func, *args, **kwargs):
         new_modin_frame = self._modin_frame.apply_full_axis(
-            0,
+            axis,
             lambda df: pandas.DataFrame(
                 df.rolling(*rolling_args).aggregate(func=func, *args, **kwargs)
             ),
@@ -2617,27 +2631,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
         how="axis_wise",
         drop=False,
     ):
-        def is_reduce_fn(fn, deep_level=0):
-            """Check whether all functions which is defined by `fn` can be implemented via TreeReduce approach."""
-            if not isinstance(fn, str) and isinstance(fn, Container):
-                # `deep_level` parameter specifies the number of nested containers that was met:
-                # - if it's 0, then we're outside of container, `fn` could be either function name
-                #   or container of function names/renamers.
-                # - if it's 1, then we're inside container of function names/renamers. `fn` must be
-                #   either function name or renamer (renamer is some container which length == 2,
-                #   the first element is the new column name and the second is the function name).
-                assert deep_level == 0 or (
-                    deep_level > 0 and len(fn) == 2
-                ), f"Got the renamer with incorrect length, expected 2 got {len(fn)}."
-                return (
-                    all(is_reduce_fn(f, deep_level + 1) for f in fn)
-                    if deep_level == 0
-                    else is_reduce_fn(fn[1], deep_level + 1)
-                )
-            return isinstance(fn, str) and fn in groupby_reduce_functions
-
         if isinstance(agg_func, dict) and all(
-            is_reduce_fn(x) for x in agg_func.values()
+            is_reduce_function(x) for x in agg_func.values()
         ):
             return self._groupby_dict_reduce(
                 by, agg_func, axis, groupby_kwargs, agg_args, agg_kwargs, drop

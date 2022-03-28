@@ -17,9 +17,20 @@ import pandas
 from pandas.errors import ParserWarning
 import pandas._libs.lib as lib
 from pandas.core.dtypes.common import is_list_like
+from pathlib import Path
 from collections import OrderedDict
-from modin.db_conn import ModinDatabaseConnection, UnsupportedDatabaseException
-from modin.config import TestDatasetSize, Engine, StorageFormat, IsExperimental
+from modin.db_conn import (
+    ModinDatabaseConnection,
+    UnsupportedDatabaseException,
+)
+from modin.config import (
+    TestDatasetSize,
+    Engine,
+    StorageFormat,
+    IsExperimental,
+    TestReadFromPostgres,
+    TestReadFromSqlServer,
+)
 from modin.utils import to_pandas
 from modin.pandas.utils import from_arrow
 from modin.test.test_utils import warns_that_defaulting_to_pandas
@@ -49,6 +60,8 @@ from .utils import (
     teardown_test_files,
     generate_dataframe,
     default_to_pandas_ignore_string,
+    parse_dates_values_by_id,
+    time_parsing_csv_path,
 )
 
 if StorageFormat.get() == "Omnisci":
@@ -420,9 +433,9 @@ class TestCsv:
         unique_filename = get_unique_filename()
         str_initial_spaces = (
             "col1,col2,col3,col4\n"
-            "five,  six,  seven,  eight\n"
-            "    five,    six,    seven,    eight\n"
-            "five, six,  seven,   eight\n"
+            + "five,  six,  seven,  eight\n"
+            + "    five,    six,    seven,    eight\n"
+            + "five, six,  seven,   eight\n"
         )
 
         eval_io_from_str(str_initial_spaces, unique_filename, skipinitialspace=True)
@@ -619,7 +632,7 @@ class TestCsv:
             "utf8",
             pytest.param(
                 "unicode_escape",
-                marks=pytest.mark.skip(
+                marks=pytest.mark.skipif(
                     condition=sys.version_info < (3, 9),
                     reason="https://bugs.python.org/issue45461",
                 ),
@@ -868,14 +881,29 @@ class TestCsv:
 
     @pytest.mark.parametrize("encoding", [None, "utf-8"])
     @pytest.mark.parametrize("encoding_errors", ["strict", "ignore"])
-    @pytest.mark.parametrize("parse_dates", [False, ["timestamp"]])
-    @pytest.mark.parametrize("index_col", [None, 0, 2])
+    @pytest.mark.parametrize(
+        "parse_dates",
+        [pytest.param(value, id=id) for id, value in parse_dates_values_by_id.items()],
+    )
+    @pytest.mark.parametrize("index_col", [None, 0, 5])
     @pytest.mark.parametrize("header", ["infer", 0])
     @pytest.mark.parametrize(
         "names",
         [
             None,
-            ["timestamp", "symbol", "high", "low", "open", "close", "spread", "volume"],
+            [
+                "timestamp",
+                "year",
+                "month",
+                "date",
+                "symbol",
+                "high",
+                "low",
+                "open",
+                "close",
+                "spread",
+                "volume",
+            ],
         ],
     )
     def test_read_csv_parse_dates(
@@ -889,7 +917,7 @@ class TestCsv:
         eval_io(
             fn_name="read_csv",
             # read_csv kwargs
-            filepath_or_buffer="modin/pandas/test/data/test_time_parsing.csv",
+            filepath_or_buffer=time_parsing_csv_path,
             names=names,
             header=header,
             index_col=index_col,
@@ -1145,7 +1173,13 @@ class TestCsv:
     @pytest.mark.parametrize(
         "skiprows",
         [
+            [x for x in range(10)],
+            [x + 5 for x in range(15)],
+            [x for x in range(10) if x % 2 == 0],
+            [x + 5 for x in range(15) if x % 2 == 0],
+            lambda x: x % 2,
             lambda x: x > 20,
+            lambda x: x < 20,
             lambda x: True,
             lambda x: x in [10, 20],
             pytest.param(
@@ -1157,13 +1191,16 @@ class TestCsv:
             ),
         ],
     )
-    def test_read_csv_skiprows_corner_cases(self, skiprows):
+    @pytest.mark.parametrize("header", ["infer", None, 0, 1, 150])
+    def test_read_csv_skiprows_corner_cases(self, skiprows, header):
         eval_io(
             fn_name="read_csv",
             check_kwargs_callable=not callable(skiprows),
             # read_csv kwargs
             filepath_or_buffer=pytest.csvs_names["test_read_csv_regular"],
             skiprows=skiprows,
+            header=header,
+            dtype="str",  # to avoid issues with heterogeneous data
         )
 
     def test_to_csv_with_index(self):
@@ -1387,6 +1424,14 @@ class TestParquet:
         finally:
             teardown_test_files([parquet_fname, csv_fname])
 
+    def test_read_empty_parquet_file(self):
+        test_df = pandas.DataFrame()
+        with tempfile.TemporaryDirectory() as directory:
+            path = f"{directory}/data"
+            os.makedirs(path)
+            test_df.to_parquet(path + "/part-00000.parquet")
+            eval_io(fn_name="read_parquet", path=path)
+
     @pytest.mark.xfail(
         condition="config.getoption('--simulate-cloud').lower() != 'off'",
         reason="The reason of tests fail in `cloud` mode is unknown for now - issue #3264",
@@ -1581,6 +1626,30 @@ class TestExcel:
         path = "modin/pandas/test/data/test_emptyline.xlsx"
         modin_df = pd.read_excel(path)
         assert str(modin_df)
+
+    @check_file_leaks
+    def test_read_excel_empty_rows(self):
+        # Test parsing empty rows in middle of excel dataframe as NaN values
+        eval_io(
+            fn_name="read_excel",
+            io="modin/pandas/test/data/test_empty_rows.xlsx",
+        )
+
+    @check_file_leaks
+    def test_read_excel_border_rows(self):
+        # Test parsing border rows as NaN values in excel dataframe
+        eval_io(
+            fn_name="read_excel",
+            io="modin/pandas/test/data/test_border_rows.xlsx",
+        )
+
+    @check_file_leaks
+    def test_read_excel_every_other_nan(self):
+        # Test for reading excel dataframe with every other row as a NaN value
+        eval_io(
+            fn_name="read_excel",
+            io="modin/pandas/test/data/every_other_row_nan.xlsx",
+        )
 
     @pytest.mark.parametrize(
         "sheet_name",
@@ -1792,6 +1861,53 @@ class TestSql:
         pandas_df = pandas.read_sql(sql=query, con=sqlalchemy_connection)
         df_equals(modin_df, pandas_df)
 
+    @pytest.mark.skipif(
+        not TestReadFromSqlServer.get(),
+        reason="Skip the test when the test SQL server is not set up.",
+    )
+    def test_read_sql_from_sql_server(self):
+        table_name = "test_1000x256"
+        query = f"SELECT * FROM {table_name}"
+        sqlalchemy_connection_string = (
+            "mssql+pymssql://sa:Strong.Pwd-123@0.0.0.0:1433/master"
+        )
+        pandas_df_to_read = pandas.DataFrame(
+            np.arange(
+                1000 * 256,
+            ).reshape(1000, 256)
+        ).add_prefix("col")
+        pandas_df_to_read.to_sql(
+            table_name, sqlalchemy_connection_string, if_exists="replace"
+        )
+        modin_df = pd.read_sql(
+            query,
+            ModinDatabaseConnection("sqlalchemy", sqlalchemy_connection_string),
+        )
+        pandas_df = pandas.read_sql(query, sqlalchemy_connection_string)
+        df_equals(modin_df, pandas_df)
+
+    @pytest.mark.skipif(
+        not TestReadFromPostgres.get(),
+        reason="Skip the test when the postgres server is not set up.",
+    )
+    def test_read_sql_from_postgres(self):
+        table_name = "test_1000x256"
+        query = f"SELECT * FROM {table_name}"
+        connection = "postgresql://sa:Strong.Pwd-123@localhost:2345/postgres"
+        pandas_df_to_read = pandas.DataFrame(
+            np.arange(
+                1000 * 256,
+            ).reshape(1000, 256)
+        ).add_prefix("col")
+        pandas_df_to_read.to_sql(table_name, connection, if_exists="replace")
+        modin_df = pd.read_sql(
+            query,
+            ModinDatabaseConnection("psycopg2", connection),
+        )
+        pandas_df = pandas.read_sql(query, connection)
+        df_equals(modin_df, pandas_df)
+
+    def test_invalid_modin_database_connections(self):
         with pytest.raises(UnsupportedDatabaseException):
             ModinDatabaseConnection("unsupported_database")
 
@@ -1849,10 +1965,10 @@ class TestFwf:
     def test_fwf_file(self, make_fwf_file):
         fwf_data = (
             "id8141  360.242940  149.910199 11950.7\n"
-            "id1594  444.953632  166.985655 11788.4\n"
-            "id1849  364.136849  183.628767 11806.2\n"
-            "id1230  413.836124  184.375703 11916.8\n"
-            "id1948  502.953953  173.237159 12468.3\n"
+            + "id1594  444.953632  166.985655 11788.4\n"
+            + "id1849  364.136849  183.628767 11806.2\n"
+            + "id1230  413.836124  184.375703 11916.8\n"
+            + "id1948  502.953953  173.237159 12468.3\n"
         )
         unique_filename = make_fwf_file(fwf_data=fwf_data)
 
@@ -1903,11 +2019,11 @@ class TestFwf:
     def test_fwf_file_usecols(self, make_fwf_file, usecols):
         fwf_data = (
             "a       b           c          d\n"
-            "id8141  360.242940  149.910199 11950.7\n"
-            "id1594  444.953632  166.985655 11788.4\n"
-            "id1849  364.136849  183.628767 11806.2\n"
-            "id1230  413.836124  184.375703 11916.8\n"
-            "id1948  502.953953  173.237159 12468.3\n"
+            + "id8141  360.242940  149.910199 11950.7\n"
+            + "id1594  444.953632  166.985655 11788.4\n"
+            + "id1849  364.136849  183.628767 11806.2\n"
+            + "id1230  413.836124  184.375703 11916.8\n"
+            + "id1948  502.953953  173.237159 12468.3\n"
         )
         eval_io(
             fn_name="read_fwf",
@@ -1968,11 +2084,11 @@ class TestFwf:
     def test_fwf_file_index_col(self, make_fwf_file):
         fwf_data = (
             "a       b           c          d\n"
-            "id8141  360.242940  149.910199 11950.7\n"
-            "id1594  444.953632  166.985655 11788.4\n"
-            "id1849  364.136849  183.628767 11806.2\n"
-            "id1230  413.836124  184.375703 11916.8\n"
-            "id1948  502.953953  173.237159 12468.3\n"
+            + "id8141  360.242940  149.910199 11950.7\n"
+            + "id1594  444.953632  166.985655 11788.4\n"
+            + "id1849  364.136849  183.628767 11806.2\n"
+            + "id1230  413.836124  184.375703 11916.8\n"
+            + "id1948  502.953953  173.237159 12468.3\n"
         )
         eval_io(
             fn_name="read_fwf",
@@ -2118,6 +2234,12 @@ class TestFeather:
             fn_name="read_feather",
             path="s3://modin-datasets/testing/test_data.feather",
             storage_options=storage_options,
+        )
+
+    def test_read_feather_path_object(self, make_feather_file):
+        eval_io(
+            fn_name="read_feather",
+            path=Path(make_feather_file()),
         )
 
     @pytest.mark.xfail(

@@ -123,8 +123,9 @@ def find_common_type_cat(types):
     """
     if all(isinstance(t, pandas.CategoricalDtype) for t in types):
         if all(t.ordered for t in types):
+            categories = np.sort(np.unique([c for t in types for c in t.categories]))
             return pandas.CategoricalDtype(
-                np.sort(np.unique([c for t in types for c in t.categories])[0]),
+                categories,
                 ordered=True,
             )
         return union_categoricals(
@@ -145,7 +146,7 @@ class PandasParser(object):
         num_splits = kwargs.pop("num_splits", None)
         start = kwargs.pop("start", None)
         end = kwargs.pop("end", None)
-        header_size = kwargs.pop("header_size", None)
+        header_size = kwargs.pop("header_size", 0)
         encoding = kwargs.get("encoding", None)
         callback = kwargs.pop("callback")
         if start is None or end is None:
@@ -233,8 +234,8 @@ class PandasParser(object):
             ErrorMessage.missmatch_with_pandas(
                 operation="read_*",
                 message="Data types of partitions are different! "
-                "Please refer to the troubleshooting section of the Modin documentation "
-                "to fix this issue",
+                + "Please refer to the troubleshooting section of the Modin documentation "
+                + "to fix this issue",
             )
 
             # concat all elements of `partitions_dtypes` and find common dtype
@@ -379,6 +380,14 @@ class PandasPickleExperimentalParser(PandasParser):
         return _split_result_for_readers(1, num_splits, df) + [length, width]
 
 
+@doc(_doc_pandas_parser_class, data_type="custom text")
+class CustomTextExperimentalParser(PandasParser):
+    @staticmethod
+    @doc(_doc_parse_func, parameters=_doc_parse_parameters_common)
+    def parse(fname, **kwargs):
+        return PandasParser.generic_parse(fname, **kwargs)
+
+
 @doc(_doc_pandas_parser_class, data_type="tables with fixed-width formatted lines")
 class PandasFWFParser(PandasParser):
     @staticmethod
@@ -512,14 +521,14 @@ class PandasExcelParser(PandasParser):
             """
             b = match.group(0)
             return re.sub(
-                br"\d+",
+                rb"\d+",
                 lambda c: str(int(c.group(0).decode("utf-8")) - _skiprows).encode(
                     "utf-8"
                 ),
                 b,
             )
 
-        bytes_data = re.sub(br'r="[A-Z]*\d+"', update_row_nums, bytes_data)
+        bytes_data = re.sub(rb'r="[A-Z]*\d+"', update_row_nums, bytes_data)
         bytesio = BytesIO(excel_header + bytes_data + footer)
         # Use openpyxl to read/parse sheet data
         reader = WorksheetReader(ws, bytesio, ex.shared_strings, False)
@@ -564,12 +573,14 @@ class PandasExcelParser(PandasParser):
             has_index_names=is_list_like(header) and len(header) > 1,
             skiprows=skiprows,
             usecols=usecols,
+            skip_blank_lines=False,
             **kwargs,
         )
-        # In excel if you create a row with only a border (no values), this parser will
-        # interpret that as a row of NaN values. pandas discards these values, so we
-        # also must discard these values.
-        pandas_df = parser.read().dropna(how="all")
+        pandas_df = parser.read()
+        if len(pandas_df) > 1 and pandas_df.isnull().all().all():
+            # Drop NaN rows at the end of the DataFrame
+            pandas_df = pandas.DataFrame(columns=pandas_df.columns)
+
         # Since we know the number of rows that occur before this partition, we can
         # correctly assign the index in cases of RangeIndex. If it is not a RangeIndex,
         # the index is already correct because it came from the data.
@@ -614,7 +625,7 @@ class PandasJSONParser(PandasParser):
             # This only happens when we are reading with only one worker (Default)
             return pandas.read_json(fname, **kwargs)
         if not pandas_df.columns.equals(columns):
-            raise NotImplementedError("Columns must be the same across all rows.")
+            raise ValueError("Columns must be the same across all rows.")
         partition_columns = pandas_df.columns
         return _split_result_for_readers(1, num_splits, pandas_df) + [
             len(pandas_df),

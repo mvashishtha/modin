@@ -23,6 +23,7 @@ import pandas
 import datetime
 from pandas.core.indexes.api import ensure_index, Index, RangeIndex
 from pandas.core.dtypes.common import is_numeric_dtype, is_list_like
+from pandas._libs.lib import no_default
 from typing import List, Hashable, Optional, Callable, Union, Dict
 
 from modin.core.storage_formats.pandas.query_compiler import PandasQueryCompiler
@@ -31,7 +32,10 @@ from modin.core.storage_formats.pandas.parsers import (
     find_common_type_cat as find_common_type,
 )
 from modin.core.dataframe.base.dataframe.dataframe import ModinDataframe
-from modin.core.dataframe.base.dataframe.utils import Axis, JoinType
+from modin.core.dataframe.base.dataframe.utils import (
+    Axis,
+    JoinType,
+)
 from modin.pandas.indexing import is_range_like
 from modin.pandas.utils import is_full_grab_slice, check_both_not_none
 
@@ -310,8 +314,8 @@ class PandasDataframe(object):
         new_len = len(new_labels)
         if old_len != new_len:
             raise ValueError(
-                "Length mismatch: Expected axis has %d elements, "
-                "new values have %d elements" % (old_len, new_len)
+                f"Length mismatch: Expected axis has {old_len} elements, "
+                + "new values have {new_len} elements"
             )
         return new_labels
 
@@ -609,9 +613,21 @@ class PandasDataframe(object):
         if row_labels is not None:
             row_positions = self.index.get_indexer_for(row_labels)
         if row_positions is not None:
+            sorted_row_positions = (
+                row_positions
+                if (
+                    (is_range_like(row_positions) and row_positions.step > 0)
+                    # `np.sort` of empty list returns an array with `float` dtype,
+                    # which doesn't work well as an indexer
+                    or len(row_positions) == 0
+                )
+                else np.sort(row_positions)
+            )
             # Get dict of row_parts as {row_index: row_internal_indices}
             # TODO: Rename `row_partitions_list`->`row_partitions_dict`
-            row_partitions_list = self._get_dict_of_block_index(0, row_positions)
+            row_partitions_list = self._get_dict_of_block_index(
+                0, sorted_row_positions, are_indices_sorted=True
+            )
             new_row_lengths = [
                 len(
                     # Row lengths for slice are calculated as the length of the slice
@@ -626,9 +642,9 @@ class PandasDataframe(object):
             new_index = self.index[
                 # pandas Index is more likely to preserve its metadata if the indexer is slice
                 slice(row_positions.start, row_positions.stop, row_positions.step)
-                # TODO: Fast range processing of non-1-step ranges is not yet supported
+                # TODO: Fast range processing of non-positive-step ranges is not yet supported
                 if is_range_like(row_positions) and row_positions.step > 0
-                else sorted(row_positions)
+                else sorted_row_positions
             ]
         else:
             row_partitions_list = {
@@ -641,8 +657,20 @@ class PandasDataframe(object):
         if col_labels is not None:
             col_positions = self.columns.get_indexer_for(col_labels)
         if col_positions is not None:
+            sorted_col_positions = (
+                col_positions
+                if (
+                    (is_range_like(col_positions) and col_positions.step > 0)
+                    # `np.sort` of empty list returns an array with `float` dtype,
+                    # which doesn't work well as an indexer
+                    or len(col_positions) == 0
+                )
+                else np.sort(col_positions)
+            )
             # Get dict of col_parts as {col_index: col_internal_indices}
-            col_partitions_list = self._get_dict_of_block_index(1, col_positions)
+            col_partitions_list = self._get_dict_of_block_index(
+                1, sorted_col_positions, are_indices_sorted=True
+            )
             new_col_widths = [
                 len(
                     # Column widths for slice are calculated as the length of the slice
@@ -662,7 +690,7 @@ class PandasDataframe(object):
                     col_positions.start, col_positions.stop, col_positions.step
                 )
             else:
-                monotonic_col_idx = sorted(col_positions)
+                monotonic_col_idx = sorted_col_positions
             new_columns = self.columns[monotonic_col_idx]
             ErrorMessage.catch_bugs_and_request_email(
                 failure_condition=sum(new_col_widths) != len(new_columns),
@@ -709,13 +737,13 @@ class PandasDataframe(object):
         # common case to keep it fast.
         if (
             row_positions is None
-            # Fast range processing of non-1-step ranges is not yet supported
+            # Fast range processing of non-positive-step ranges is not yet supported
             or (is_range_like(row_positions) and row_positions.step > 0)
             or len(row_positions) == 1
             or np.all(row_positions[1:] >= row_positions[:-1])
         ) and (
             col_positions is None
-            # Fast range processing of non-1-step ranges is not yet supported
+            # Fast range processing of non-positive-step ranges is not yet supported
             or (is_range_like(col_positions) and col_positions.step > 0)
             or len(col_positions) == 1
             or np.all(col_positions[1:] >= col_positions[:-1])
@@ -729,14 +757,14 @@ class PandasDataframe(object):
         # the old. This information is sent to `_reorder_labels`.
         if row_positions is not None:
             row_order_mapping = dict(
-                zip(sorted(row_positions), range(len(row_positions)))
+                zip(sorted_row_positions, range(len(row_positions)))
             )
             new_row_order = [row_order_mapping[idx] for idx in row_positions]
         else:
             new_row_order = None
         if col_positions is not None:
             col_order_mapping = dict(
-                zip(sorted(col_positions), range(len(col_positions)))
+                zip(sorted_col_positions, range(len(col_positions)))
             )
             new_col_order = [col_order_mapping[idx] for idx in col_positions]
         else:
@@ -800,7 +828,18 @@ class PandasDataframe(object):
         def from_labels_executor(df, **kwargs):
             # Setting the names here ensures that external and internal metadata always match.
             df.index.names = new_column_names
-            return df.reset_index()
+
+            # Handling of a case when columns have the same name as one of index levels names.
+            # In this case `df.reset_index` provides errors related to columns duplication.
+            # This case is possible because columns metadata updating is deffered. To workaround
+            # `df.reset_index` error we allow columns duplucation in "if" branch via `concat`.
+            if any(name_level in df.columns for name_level in df.index.names):
+                columns_to_add = df.index.to_frame()
+                columns_to_add.reset_index(drop=True, inplace=True)
+                df = df.reset_index(drop=True)
+                return pandas.concat([columns_to_add, df], axis=1, copy=False)
+            else:
+                return df.reset_index()
 
         new_parts = self._partition_mgr_cls.apply_func_to_select_indices(
             0,
@@ -1061,7 +1100,7 @@ class PandasDataframe(object):
                 columns.append(col)
         return columns
 
-    def _get_dict_of_block_index(self, axis, indices):
+    def _get_dict_of_block_index(self, axis, indices, are_indices_sorted=False):
         """
         Convert indices to an ordered dict mapping partition (or block) index to internal indices in said partition.
 
@@ -1071,6 +1110,12 @@ class PandasDataframe(object):
             The axis along which to get the indices (0 - rows, 1 - columns).
         indices : list of int, slice
             A list of global indices to convert.
+        are_indices_sorted : bool, default: False
+            Flag indicating whether the `indices` sequence is sorted by ascending or not.
+            Note: the internal algorithm requires for the `indices` to be sorted, this
+            flag is used for optimization in order to not sort already sorted data.
+            Be careful when passing ``True`` for this flag, if the data appears to be unsorted
+            with the flag set to ``True`` this would lead to undefined behavior.
 
         Returns
         -------
@@ -1094,6 +1139,9 @@ class PandasDataframe(object):
                         [slice(None)] * self._partitions.shape[axis],
                     )
                 )
+            # Empty selection case
+            if indices.start == indices.stop and indices.start is not None:
+                return OrderedDict()
             if indices.start is None or indices.start == 0:
                 last_part, last_idx = list(
                     self._get_dict_of_block_index(axis, [indices.stop]).items()
@@ -1142,10 +1190,23 @@ class PandasDataframe(object):
                         )
                         dict_of_slices.update({last_part: slice(None, last_idx[0])})
                         return dict_of_slices
-        # Sort and convert negative indices to positive
-        indices = np.sort(
-            [i if i >= 0 else max(0, len(self.axes[axis]) + i) for i in indices]
-        )
+        if isinstance(indices, list):
+            # Converting python list to numpy for faster processing
+            indices = np.array(indices, dtype=np.int64)
+        negative_mask = np.less(indices, 0)
+        has_negative = np.any(negative_mask)
+        if has_negative:
+            # We're going to modify 'indices' inplace in a numpy way, so doing a copy/converting indices to numpy.
+            indices = (
+                indices.copy()
+                if isinstance(indices, np.ndarray)
+                else np.array(indices, dtype=np.int64)
+            )
+            indices[negative_mask] = indices[negative_mask] % len(self.axes[axis])
+        # If the `indices` array was modified because of the negative indices conversion
+        # then the original order was broken and so we have to sort anyway:
+        if has_negative or not are_indices_sorted:
+            indices = np.sort(indices)
         if axis == 0:
             bins = np.array(self._row_lengths)
         else:
@@ -2039,7 +2100,7 @@ class PandasDataframe(object):
         new_index=None,
         new_columns=None,
         keep_remaining=False,
-        item_to_distribute=None,
+        item_to_distribute=no_default,
     ):
         """
         Apply a function for a subset of the data.
@@ -2066,7 +2127,7 @@ class PandasDataframe(object):
             advance, and if not provided it must be computed.
         keep_remaining : boolean, default: False
             Whether or not to drop the data that is not computed over.
-        item_to_distribute : (optional)
+        item_to_distribute : np.ndarray or scalar, default: no_default
             The item to split up so it can be applied over both axes.
 
         Returns
@@ -2113,7 +2174,7 @@ class PandasDataframe(object):
             # variables set.
             assert row_labels is not None and col_labels is not None
             assert keep_remaining
-            assert item_to_distribute is not None
+            assert item_to_distribute is not no_default
             row_partitions_list = self._get_dict_of_block_index(0, row_labels).items()
             col_partitions_list = self._get_dict_of_block_index(1, col_labels).items()
             new_partitions = self._partition_mgr_cls.apply_func_to_indices_both_axis(
@@ -2900,3 +2961,69 @@ class PandasDataframe(object):
         that were used to build it.
         """
         self._partition_mgr_cls.finalize(self._partitions)
+
+    def __dataframe__(self, nan_as_null: bool = False, allow_copy: bool = True):
+        """
+        Get a Modin DataFrame that implements the dataframe exchange protocol.
+
+        See more about the protocol in https://data-apis.org/dataframe-protocol/latest/index.html.
+
+        Parameters
+        ----------
+        nan_as_null : bool, default: False
+            A keyword intended for the consumer to tell the producer
+            to overwrite null values in the data with ``NaN`` (or ``NaT``).
+            This currently has no effect; once support for nullable extension
+            dtypes is added, this value should be propagated to columns.
+        allow_copy : bool, default: True
+            A keyword that defines whether or not the library is allowed
+            to make a copy of the data. For example, copying data would be necessary
+            if a library supports strided buffers, given that this protocol
+            specifies contiguous buffers. Currently, if the flag is set to ``False``
+            and a copy is needed, a ``RuntimeError`` will be raised.
+
+        Returns
+        -------
+        ProtocolDataframe
+            A dataframe object following the dataframe protocol specification.
+        """
+        from modin.core.dataframe.pandas.exchange.dataframe_protocol.dataframe import (
+            PandasProtocolDataframe,
+        )
+
+        return PandasProtocolDataframe(
+            self, nan_as_null=nan_as_null, allow_copy=allow_copy
+        )
+
+    @classmethod
+    def from_dataframe(cls, df: "ProtocolDataframe") -> "PandasDataframe":
+        """
+        Convert a DataFrame implementing the dataframe exchange protocol to a Core Modin Dataframe.
+
+        See more about the protocol in https://data-apis.org/dataframe-protocol/latest/index.html.
+
+        Parameters
+        ----------
+        df : ProtocolDataframe
+            The DataFrame object supporting the dataframe exchange protocol.
+
+        Returns
+        -------
+        PandasDataframe
+            A new Core Modin Dataframe object.
+        """
+        if type(df) == cls:
+            return df
+
+        if not hasattr(df, "__dataframe__"):
+            raise ValueError(
+                "`df` does not support DataFrame exchange protocol, i.e. `__dataframe__` method"
+            )
+
+        from modin.core.dataframe.pandas.exchange.dataframe_protocol.from_dataframe import (
+            from_dataframe_to_pandas,
+        )
+
+        ErrorMessage.default_to_pandas(message="`from_dataframe`")
+        pandas_df = from_dataframe_to_pandas(df)
+        return cls.from_pandas(pandas_df)

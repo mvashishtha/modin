@@ -107,13 +107,16 @@ class DataFrame(BasePandasDataset):
         copy=None,
         query_compiler=None,
     ):
+        # Siblings are other dataframes that share the same query compiler. We
+        # use this list to update inplace when there is a shallow copy.
+        self._siblings = []
         Engine.subscribe(_update_engine)
         if isinstance(data, (DataFrame, Series)):
             self._query_compiler = data._query_compiler.copy()
             if index is not None and any(i not in data.index for i in index):
                 raise NotImplementedError(
                     "Passing non-existant columns or index values to constructor not"
-                    " yet implemented."
+                    + " yet implemented."
                 )
             if isinstance(data, Series):
                 # We set the column name if it is not in the provided Series
@@ -133,7 +136,7 @@ class DataFrame(BasePandasDataset):
                 if columns is not None and any(i not in data.columns for i in columns):
                     raise NotImplementedError(
                         "Passing non-existant columns or index values to constructor not"
-                        " yet implemented."
+                        + " yet implemented."
                     )
                 if index is None:
                     index = slice(None)
@@ -225,8 +228,8 @@ class DataFrame(BasePandasDataset):
         -------
         str
         """
-        num_rows = pandas.get_option("max_rows") or 60
-        num_cols = pandas.get_option("max_columns") or 20
+        num_rows = pandas.get_option("display.max_rows") or 60
+        num_cols = pandas.get_option("display.max_columns") or 20
 
         # We use pandas _repr_html_ to get a string of the HTML representation
         # of the dataframe.
@@ -350,7 +353,6 @@ class DataFrame(BasePandasDataset):
         """
         if not callable(func):
             raise ValueError("'{0}' object is not callable".format(type(func)))
-        ErrorMessage.non_verified_udf()
         return DataFrame(query_compiler=self._query_compiler.applymap(func))
 
     def apply(
@@ -403,7 +405,7 @@ class DataFrame(BasePandasDataset):
             warnings.warn(
                 (
                     "The `squeeze` parameter is deprecated and "
-                    "will be removed in a future version."
+                    + "will be removed in a future version."
                 ),
                 FutureWarning,
                 stacklevel=2,
@@ -545,7 +547,7 @@ class DataFrame(BasePandasDataset):
         if sort is False:
             warnings.warn(
                 "Due to https://github.com/pandas-dev/pandas/issues/35092, "
-                "Pandas ignores sort=False; Modin correctly does not sort."
+                + "Pandas ignores sort=False; Modin correctly does not sort."
             )
         if isinstance(other, (Series, dict)):
             if isinstance(other, dict):
@@ -553,7 +555,7 @@ class DataFrame(BasePandasDataset):
             if other.name is None and not ignore_index:
                 raise TypeError(
                     "Can only append a Series if ignore_index=True"
-                    " or if the Series has a name"
+                    + " or if the Series has a name"
                 )
             if other.name is not None:
                 # other must have the same index name as self, otherwise
@@ -857,7 +859,10 @@ class DataFrame(BasePandasDataset):
         inplace=False,
         limit=None,
         downcast=None,
-    ):
+    ):  # noqa: PR01, RT01, D200
+        """
+        Fill NA/NaN values using the specified method.
+        """
         return super(DataFrame, self)._fillna(
             squeeze_self=False,
             squeeze_value=isinstance(value, Series),
@@ -1135,8 +1140,8 @@ class DataFrame(BasePandasDataset):
                 except (TypeError, ValueError, IndexError):
                     raise ValueError(
                         "Cannot insert into a DataFrame with no defined index "
-                        "and a value that cannot be converted to a "
-                        "Series"
+                        + "and a value that cannot be converted to a "
+                        + "Series"
                     )
             new_index = value.index.copy()
             new_columns = self.columns.insert(loc, column)
@@ -1681,7 +1686,6 @@ class DataFrame(BasePandasDataset):
         """
         Query the columns of a ``DataFrame`` with a boolean expression.
         """
-        ErrorMessage.non_verified_udf()
         self._update_var_dicts_in_kwargs(expr, kwargs)
         self._validate_eval_query(expr, **kwargs)
         inplace = validate_bool_kwarg(inplace, "inplace")
@@ -1948,6 +1952,25 @@ class DataFrame(BasePandasDataset):
                 return frame
             else:
                 return
+
+        missing = []
+        for col in keys:
+            # everything else gets tried as a key;
+            # see https://github.com/pandas-dev/pandas/issues/24969
+            try:
+                found = col in self.columns
+            except TypeError as err:
+                raise TypeError(
+                    'The parameter "keys" may be a column key, one-dimensional '
+                    + "array, or a list containing only valid column keys and "
+                    + f"one-dimensional arrays. Received column of type {type(col)}"
+                ) from err
+            else:
+                if not found:
+                    missing.append(col)
+        if missing:
+            raise KeyError(f"None of {missing} are in the columns")
+
         new_query_compiler = self._query_compiler.set_index_from_columns(
             keys, drop=drop, append=append
         )
@@ -2170,8 +2193,10 @@ class DataFrame(BasePandasDataset):
         partition_cols=None,
         storage_options: StorageOptions = None,
         **kwargs,
-    ):
-
+    ):  # noqa: PR01, RT01, D200
+        """
+        Write a DataFrame to the binary parquet format.
+        """
         config = {
             "path": path,
             "engine": engine,
@@ -2272,7 +2297,10 @@ class DataFrame(BasePandasDataset):
         stylesheet=None,
         compression="infer",
         storage_options=None,
-    ):
+    ):  # noqa: PR01, RT01, D200
+        """
+        Render a DataFrame to an XML document.
+        """
         return self.__constructor__(
             query_compiler=self._query_compiler.default_to_pandas(
                 pandas.DataFrame.to_xml,
@@ -2450,16 +2478,25 @@ class DataFrame(BasePandasDataset):
         value : Any
             Value to set.
         """
-        # We have to check for this first because we have to be able to set
-        # _query_compiler before we check if the key is in self
-        if key in ["_query_compiler"] or key in self.__dict__:
+        # While we let users assign to a column labeled "x" with "df.x" , there
+        # are some attributes that we should assume are NOT column names and
+        # therefore should follow the default Python object assignment
+        # behavior. These are:
+        # - anything in self.__dict__. This includes any attributes that the
+        #   user has added to the dataframe with,  e.g., `df.c = 3`, and
+        #   any attribute that Modin has added to the frame, e.g.
+        #   `_query_compiler` and `_siblings`
+        # - `_query_compiler`, which Modin initializes before it appears in
+        #   __dict__
+        # - `_siblings`, which Modin initializes before it appears in __dict__
+        if key in ["_query_compiler", "_siblings"] or key in self.__dict__:
             pass
         elif key in self and key not in dir(self):
             self.__setitem__(key, value)
         elif isinstance(value, pandas.Series):
             warnings.warn(
                 "Modin doesn't allow columns to be created via a new attribute name - see "
-                "https://pandas.pydata.org/pandas-docs/stable/indexing.html#attribute-access",
+                + "https://pandas.pydata.org/pandas-docs/stable/indexing.html#attribute-access",
                 UserWarning,
             )
         object.__setattr__(self, key, value)
@@ -2624,6 +2661,35 @@ class DataFrame(BasePandasDataset):
     __imod__ = mod  # pragma: no cover
     __rmod__ = rmod
     __rdiv__ = rdiv
+
+    def __dataframe__(self, nan_as_null: bool = False, allow_copy: bool = True):
+        """
+        Get a Modin DataFrame that implements the dataframe exchange protocol.
+
+        See more about the protocol in https://data-apis.org/dataframe-protocol/latest/index.html.
+
+        Parameters
+        ----------
+        nan_as_null : bool, default: False
+            A keyword intended for the consumer to tell the producer
+            to overwrite null values in the data with ``NaN`` (or ``NaT``).
+            This currently has no effect; once support for nullable extension
+            dtypes is added, this value should be propagated to columns.
+        allow_copy : bool, default: True
+            A keyword that defines whether or not the library is allowed
+            to make a copy of the data. For example, copying data would be necessary
+            if a library supports strided buffers, given that this protocol
+            specifies contiguous buffers. Currently, if the flag is set to ``False``
+            and a copy is needed, a ``RuntimeError`` will be raised.
+
+        Returns
+        -------
+        ProtocolDataframe
+            A dataframe object following the dataframe protocol specification.
+        """
+        return self._query_compiler.to_dataframe(
+            nan_as_null=nan_as_null, allow_copy=allow_copy
+        )
 
     @property
     def attrs(self):  # noqa: D200

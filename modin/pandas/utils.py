@@ -14,7 +14,21 @@
 """Implement utils for pandas component."""
 
 from pandas import MultiIndex
+from pandas.util._decorators import doc
 from modin.utils import hashable
+
+_doc_binary_operation = """
+Return {operation} of {left} and `{right}` (binary operator `{bin_op}`).
+
+Parameters
+----------
+{right} : {right_type}
+    The second operand to perform computation.
+
+Returns
+-------
+{returns}
+"""
 
 
 def from_non_pandas(df, index, columns, dtype):
@@ -85,6 +99,28 @@ def from_arrow(at):
     from .dataframe import DataFrame
 
     return DataFrame(query_compiler=FactoryDispatcher.from_arrow(at))
+
+
+def from_dataframe(df):
+    """
+    Convert a DataFrame implementing the dataframe exchange protocol to a Modin DataFrame.
+
+    See more about the protocol in https://data-apis.org/dataframe-protocol/latest/index.html.
+
+    Parameters
+    ----------
+    df : DataFrame
+        The DataFrame object supporting the dataframe exchange protocol.
+
+    Returns
+    -------
+    DataFrame
+        A new Modin DataFrame object.
+    """
+    from modin.core.execution.dispatching.factories.dispatcher import FactoryDispatcher
+    from .dataframe import DataFrame
+
+    return DataFrame(query_compiler=FactoryDispatcher.from_dataframe(df))
 
 
 def is_scalar(obj):
@@ -214,6 +250,50 @@ def check_both_not_none(option1, option2):
         True if both option1 and option2 are not None, False otherwise.
     """
     return not (option1 is None or option2 is None)
+
+
+def _doc_binary_op(operation, bin_op, left="Series", right="right", returns="Series"):
+    """
+    Return callable documenting `Series` or `DataFrame` binary operator.
+
+    Parameters
+    ----------
+    operation : str
+        Operation name.
+    bin_op : str
+        Binary operation name.
+    left : str, default: 'Series'
+        The left object to document.
+    right : str, default: 'right'
+        The right operand name.
+    returns : str, default: 'Series'
+        Type of returns.
+
+    Returns
+    -------
+    callable
+    """
+    if left == "Series":
+        right_type = "Series or scalar value"
+    elif left == "DataFrame":
+        right_type = "DataFrame, Series or scalar value"
+    elif left == "BasePandasDataset":
+        right_type = "BasePandasDataset or scalar value"
+    else:
+        raise NotImplementedError(
+            f"Only 'BasePandasDataset', `DataFrame` and 'Series' `left` are allowed, actually passed: {left}"
+        )
+    doc_op = doc(
+        _doc_binary_operation,
+        operation=operation,
+        right=right,
+        right_type=right_type,
+        bin_op=bin_op,
+        returns=returns,
+        left=left,
+    )
+
+    return doc_op
 
 
 _original_pandas_MultiIndex_from_frame = MultiIndex.from_frame

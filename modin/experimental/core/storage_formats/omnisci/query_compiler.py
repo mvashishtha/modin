@@ -201,6 +201,19 @@ class DFAlgQueryCompiler(BaseQueryCompiler):
             shape_hint = None
         return cls(data_cls.from_arrow(at), shape_hint=shape_hint)
 
+    # Dataframe exchange protocol
+
+    def to_dataframe(self, nan_as_null: bool = False, allow_copy: bool = True):
+        return self._modin_frame.__dataframe__(
+            nan_as_null=nan_as_null, allow_copy=allow_copy
+        )
+
+    @classmethod
+    def from_dataframe(cls, df, data_cls):
+        return cls(data_cls.from_dataframe(df))
+
+    # END Dataframe exchange protocol
+
     default_to_pandas = PandasQueryCompiler.default_to_pandas
 
     def copy(self):
@@ -563,6 +576,11 @@ class DFAlgQueryCompiler(BaseQueryCompiler):
     def dt_day(self):
         return self.__constructor__(
             self._modin_frame.dt_extract("day"), self._shape_hint
+        )
+
+    def dt_hour(self):
+        return self.__constructor__(
+            self._modin_frame.dt_extract("hour"), self._shape_hint
         )
 
     def _bin_op(self, other, op_name, **kwargs):

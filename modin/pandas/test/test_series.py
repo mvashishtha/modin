@@ -1016,6 +1016,8 @@ def test_asof_large(where):
 @pytest.mark.parametrize("data", test_data_values, ids=test_data_keys)
 def test_astype(data):
     modin_series, pandas_series = create_test_series(data)
+    series_name = "test_series"
+    modin_series.name = pandas_series.name = series_name
     try:
         pandas_result = pandas_series.astype(str)
     except Exception as e:
@@ -1039,6 +1041,16 @@ def test_astype(data):
             repr(modin_series.astype(np.float64))  # repr to force materialization
     else:
         df_equals(modin_series.astype(np.float64), pandas_result)
+
+    df_equals(
+        modin_series.astype({series_name: str}),
+        pandas_series.astype({series_name: str}),
+    )
+
+    eval_general(modin_series, pandas_series, lambda df: df.astype({"wrong_name": str}))
+
+    # TODO(https://github.com/modin-project/modin/issues/4317): Test passing a
+    # dict to astype() for a series with no name.
 
 
 def test_astype_categorical():
@@ -2120,6 +2132,28 @@ def test_loc_setting_categorical_series():
     modin_series.loc[1:3] = "a"
     pandas_series.loc[1:3] = "a"
     df_equals(modin_series, pandas_series)
+
+
+# This tests the bug from https://github.com/modin-project/modin/issues/3736
+def test_iloc_assigning_scalar_none_to_string_series():
+    data = ["A"]
+    modin_series, pandas_series = create_test_series(data, dtype="string")
+    modin_series.iloc[0] = None
+    pandas_series.iloc[0] = None
+    df_equals(modin_series, pandas_series)
+
+
+def test_set_ordered_categorical_column():
+    data = {"a": [1, 2, 3], "b": [4, 5, 6]}
+    mdf = pd.DataFrame(data)
+    pdf = pandas.DataFrame(data)
+    mdf["a"] = pd.Categorical(mdf["a"], ordered=True)
+    pdf["a"] = pandas.Categorical(pdf["a"], ordered=True)
+    df_equals(mdf, pdf)
+
+    modin_categories = mdf["a"].dtype
+    pandas_categories = pdf["a"].dtype
+    assert modin_categories == pandas_categories
 
 
 @pytest.mark.parametrize("data", test_data_values, ids=test_data_keys)
@@ -3456,7 +3490,7 @@ def test_value_counts(sort, normalize, bins, dropna, ascending):
     )
 
     # from issue #2365
-    arr = np.random.rand(2 ** 6)
+    arr = np.random.rand(2**6)
     arr[::10] = np.nan
     eval_general(
         *create_test_series(arr),
