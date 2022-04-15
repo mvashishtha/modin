@@ -1656,7 +1656,7 @@ class PandasDataframe(object):
 
             # create virtual partition and perform window operation
             # BUG: should set full_axis in row_partitions() and column_partitions()
-            virtual_partitions = self._partition_mgr_cls.row_partitions(np.array(parts_to_join)) if axis == Axis.COL_WISE else self._partition_mgr_cls.column_partitions(np.array(parts_to_join))
+            virtual_partitions = self._partition_mgr_cls.row_partitions(np.array(parts_to_join), full_axis=False) if axis == Axis.COL_WISE else self._partition_mgr_cls.column_partitions(np.array(parts_to_join), full_axis=False)
             # BUG: window_function_partition is returning a list for each virtual partition
             
             result = [virtual_partition.apply(window_function_partition) for virtual_partition in virtual_partitions]
