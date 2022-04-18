@@ -1569,6 +1569,7 @@ class PandasDataframe(object):
         (row if axis=1) down to a single value.
         """
         axis = Axis(axis)
+
         def window_function_complete(virtual_partition):
             # modifying the dataframe that's passed in or create a new df
             # creating new df means will have 2 copies of the df in memory
@@ -1588,6 +1589,7 @@ class PandasDataframe(object):
                     virtual_partition_copy.iloc[i, :] = reduction_result  
             # fn that's passed in to map_axis_partitions needs to have a dataframe returned
             return virtual_partition_copy
+
         def window_function_partition(virtual_partition):
             virtual_partition_copy = virtual_partition.copy()
             n = len(virtual_partition_copy.columns) if axis == Axis.COL_WISE else len(virtual_partition_copy.index)
@@ -1602,8 +1604,10 @@ class PandasDataframe(object):
                 else:
                     virtual_partition_copy.iloc[i, :] = reduction_result
             return virtual_partition_copy
+
         num_parts = len(self._partitions[0]) if axis == Axis.COL_WISE else len(self._partitions)
         results = []
+
         for i in range(num_parts):
             # partitions to join in virtual partition
             parts_to_join = []
@@ -1634,8 +1638,11 @@ class PandasDataframe(object):
             virtual_partitions = self._partition_mgr_cls.row_partitions(np.array(parts_to_join), full_axis=False) if axis == Axis.COL_WISE else self._partition_mgr_cls.column_partitions(np.array(parts_to_join), full_axis=False)
             # BUG: window_function_partition is returning a list for each virtual partition
 
-            result = [virtual_partition.apply(window_function_partition) for virtual_partition in virtual_partitions]
-            # changed variable to x to not conflict with i of big for loop over num_parts
+            if i == (num_parts - 1):
+                result = [virtual_partition.apply(window_function_complete) for virtual_partition in virtual_partitions]
+            else:
+                result = [virtual_partition.apply(window_function_partition) for virtual_partition in virtual_partitions]
+            
             if axis == Axis.ROW_WISE:
                 results.append(result)
             else:
@@ -1644,6 +1651,7 @@ class PandasDataframe(object):
                 else:    
                     for x, r in enumerate(results):
                         r.append(result[x]) 
+
         return self.__constructor__(
             results,
             self.index,
