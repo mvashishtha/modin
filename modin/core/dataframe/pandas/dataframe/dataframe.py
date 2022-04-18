@@ -1547,7 +1547,6 @@ class PandasDataframe(object):
     ) -> "PandasDataframe":
         """
         Apply a sliding window operator that acts as a GROUPBY on each window, and reduces down to a single row (column) per window.
-
         Parameters
         ----------
         axis : int or modin.core.dataframe.base.utils.Axis
@@ -1559,21 +1558,17 @@ class PandasDataframe(object):
             (The size of the sliding window).
         result_schema : dict, optional
             Mapping from column labels to data types that represents the types of the output dataframe.
-
         Returns
         -------
         PandasDataframe
             A new PandasDataframe with the reduce function applied over windows of the specified
                 axis.
-
         Notes
         -----
         The user-defined reduce function must reduce each window’s column
         (row if axis=1) down to a single value.
         """
-
         axis = Axis(axis)
-
         def window_function_complete(virtual_partition):
             # modifying the dataframe that's passed in or create a new df
             # creating new df means will have 2 copies of the df in memory
@@ -1581,71 +1576,51 @@ class PandasDataframe(object):
             # ok to modify bc the broadcast_axis makes a copy
             # pass by value, not pass by reference
             # when call df_equals, need to convert from modin frame to pandas
-
             virtual_partition_copy = virtual_partition.copy()
-
             n = len(virtual_partition_copy.columns) if axis == Axis.COL_WISE else len(virtual_partition_copy.index)
-
             for i in range(0, n):
                 window = virtual_partition_copy.iloc[:, i : i + window_size] if axis == Axis.COL_WISE else virtual_partition_copy.iloc[i : i + window_size, :]
-
                 reduction_result = reduce_fn(window)
             
                 if axis == Axis.COL_WISE:
                     virtual_partition_copy.iloc[:, i] = reduction_result
                 else:
                     virtual_partition_copy.iloc[i, :] = reduction_result  
-
             # fn that's passed in to map_axis_partitions needs to have a dataframe returned
             return virtual_partition_copy
-
         def window_function_partition(virtual_partition):
             virtual_partition_copy = virtual_partition.copy()
-
             n = len(virtual_partition_copy.columns) if axis == Axis.COL_WISE else len(virtual_partition_copy.index)
-
             for i in range(0, n):
                 window = virtual_partition_copy.iloc[:, i : i + window_size] if axis == Axis.COL_WISE else virtual_partition_copy.iloc[i : i + window_size, :]
                 
                 if ((axis == Axis.COL_WISE and len(window.columns) < window_size) or (axis == Axis.ROW_WISE and len(window.index) < window_size)):
                     break
-
                 reduction_result = reduce_fn(window)
-
                 if axis == Axis.COL_WISE:
                     virtual_partition_copy.iloc[:, i] = reduction_result
                 else:
                     virtual_partition_copy.iloc[i, :] = reduction_result
-
             return virtual_partition_copy
-
-
         num_parts = len(self._partitions[0]) if axis == Axis.COL_WISE else len(self._partitions)
         results = []
-
         for i in range(num_parts):
             # partitions to join in virtual partition
             parts_to_join = []
             # get the ith partition 
             starting_part =  self._partitions[:, [i]] if axis == Axis.COL_WISE else self._partitions[i]
             parts_to_join.append(starting_part)
-
             last_window_span = window_size - 1
-
             k = i + 1
-
             while (last_window_span > 0 and k < num_parts):
                 new_parts = self._partitions[:, k] if axis == Axis.COL_WISE else self._partitions[k] 
-
                 part_len = new_parts[0].width() if axis == Axis.COL_WISE else new_parts[0].length()
-
                 if (last_window_span <= part_len):
                     if axis == Axis.COL_WISE:
-                        masked_new_parts = np.array([[part.mask(row_labels = slice(None), col_labels = slice(last_window_span, part_len))] for part in new_parts])
+                        masked_new_parts = np.array([part.mask(row_labels = slice(None), col_labels = slice(last_window_span, part_len)) for part in new_parts])
                     else:
                         # BUG: for the 100 x 100 df, first new virtual partition is 60 x 32, but i think it's supposed to be 36 x 32
-                        masked_new_parts = np.array([[part.mask(row_labels = slice(last_window_span, part_len), col_labels=slice(None))] for part in new_parts])
-
+                        masked_new_parts = np.array([part.mask(row_labels = slice(last_window_span, part_len), col_labels=slice(None)) for part in new_parts])
                     parts_to_join.append(masked_new_parts)
                     break
                 else:
@@ -1656,11 +1631,10 @@ class PandasDataframe(object):
 
             # create virtual partition and perform window operation
             # BUG: should set full_axis in row_partitions() and column_partitions()
-            virtual_partitions = self._partition_mgr_cls.row_partitions(parts_to_join) if axis == Axis.ROW_WISE else self._partition_mgr_cls.column_partitions(parts_to_join)
+            virtual_partitions = self._partition_mgr_cls.row_partitions(np.array(parts_to_join), full_axis=False) if axis == Axis.COL_WISE else self._partition_mgr_cls.column_partitions(np.array(parts_to_join), full_axis=False)
             # BUG: window_function_partition is returning a list for each virtual partition
-            
-            result = [virtual_partition.apply(window_function_partition) for virtual_partition in virtual_partitions]
 
+            result = [virtual_partition.apply(window_function_partition) for virtual_partition in virtual_partitions]
             # changed variable to x to not conflict with i of big for loop over num_parts
             if axis == Axis.ROW_WISE:
                 results.append(result)
@@ -1670,7 +1644,6 @@ class PandasDataframe(object):
                 else:    
                     for x, r in enumerate(results):
                         r.append(result[x]) 
-
         return self.__constructor__(
             results,
             self.index,
