@@ -13,14 +13,29 @@
 
 """Module houses class that wraps data (block partition) and its metadata."""
 
+from calendar import c
+from typing import Callable, NamedTuple, List
 import ray
 from ray.util import get_node_ip_address
 import uuid
 from modin.core.execution.ray.common.utils import deserialize, ObjectIDType
+from pandas import DataFrame
 
 from modin.core.dataframe.pandas.partitioning.partition import PandasDataframePartition
 from modin.pandas.indexing import compute_sliced_len
 from modin.logging import get_logger
+
+
+class CallSerialization(NamedTuple):
+    num_args: int
+    keywords: List[str]
+
+
+ObjectIDType = ray.ObjectRef
+if version.parse(ray.__version__) >= version.parse("1.2.0"):
+    from ray.util.client.common import ClientObjectRef
+
+    ObjectIDType = (ray.ObjectRef, ClientObjectRef)
 
 compute_sliced_len = ray.remote(compute_sliced_len)
 
@@ -110,7 +125,7 @@ class PandasOnRayDataframePartition(PandasDataframePartition):
         call_queue = self.call_queue + [(func, args, kwargs)]
         if len(call_queue) > 1:
             logger.debug(f"SUBMIT::_apply_list_of_funcs::{self._identity}")
-            result, length, width, ip = _apply_list_of_funcs.remote(call_queue, data)
+            result, length, width, ip = _apply_list_of_funcs_remotely(oid, call_queue)
         else:
             # We handle `len(call_queue) == 1` in a different way because
             # this dramatically improves performance.
@@ -162,7 +177,7 @@ class PandasOnRayDataframePartition(PandasDataframePartition):
                 self._length_cache,
                 self._width_cache,
                 self._ip_cache,
-            ) = _apply_list_of_funcs.remote(call_queue, data)
+            ) = _apply_list_of_funcs_remotely(oid, call_queue)
         else:
             # We handle `len(call_queue) == 1` in a different way because
             # this dramatically improves performance.
@@ -390,8 +405,25 @@ def _apply_func(partition, func, *args, **kwargs):  # pragma: no cover
     )
 
 
+def _apply_list_of_funcs_remotely(partition, calls):
+    all_args = []
+    serializations = []
+    for func, args, kwargs in calls:
+        if len(kwargs) > 0:
+            keywords, values = zip(*kwargs.items())
+        else:
+            keywords = values = []
+        serializations.append(CallSerialization(num_args=len(args), keywords=keywords))
+        all_args.append(func)
+        all_args.extend(args)
+        all_args.extend(values)
+    return _apply_list_of_funcs.remote(partition, serializations, *all_args)
+
+
 @ray.remote(num_returns=4)
-def _apply_list_of_funcs(funcs, partition):  # pragma: no cover
+def _apply_list_of_funcs(
+    partition, calls: List[CallSerialization], *args
+):  # pragma: no cover
     """
     Execute all operations stored in the call queue on the partition in a worker process.
 
@@ -413,17 +445,32 @@ def _apply_list_of_funcs(funcs, partition):  # pragma: no cover
     str
         The node IP address of the worker process.
     """
-    for func, args, kwargs in funcs:
-        func = deserialize(func)
-        args = deserialize(args)
-        kwargs = deserialize(kwargs)
+    current_args_index = 0
+    for call in calls:
+        func = args[current_args_index]
+        func_args = args[
+            current_args_index + 1 : current_args_index + 1 + call.num_args
+        ]
+        func_kwargs = {
+            keyword: arg
+            for keyword, arg in zip(
+                call.keywords,
+                args[
+                    current_args_index
+                    + 1
+                    + call.num_args : current_args_index
+                    + 1
+                    + call.num_args
+                    + len(call.keywords)
+                ],
+            )
+        }
+        current_args_index = current_args_index + 1 + call.num_args + len(call.keywords)
         try:
-            partition = func(partition, *args, **kwargs)
-        # Sometimes Arrow forces us to make a copy of an object before we operate on it. We
-        # don't want the error to propagate to the user, and we want to avoid copying unless
-        # we absolutely have to.
+            partition = func(partition, *func_args, **func_kwargs)
+
         except ValueError:
-            partition = func(partition.copy(), *args, **kwargs)
+            partition = func(partition.copy(), *func_args, **func_kwargs)
 
     return (
         partition,
