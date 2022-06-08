@@ -14,6 +14,7 @@
 import numpy as np
 import pandas
 import pytest
+import ray
 
 import modin.pandas as pd
 from modin.distributed.dataframe.pandas import unwrap_partitions, from_partitions
@@ -103,6 +104,7 @@ def test_unwrap_partitions(axis):
 @pytest.mark.parametrize("index", [None, "index"])
 @pytest.mark.parametrize("axis", [None, 0, 1])
 def test_from_partitions(axis, index, columns, row_lengths, column_widths):
+    print(f"available resources at start of test: {ray.available_resources()}")
     num_rows = 2**16
     num_cols = 2**8
     data = np.random.randint(0, 100, size=(num_rows, num_cols))
@@ -126,6 +128,7 @@ def test_from_partitions(axis, index, columns, row_lengths, column_widths):
         else [num_cols, num_cols]
     )
 
+    print("starting to put objects...")
     if Engine.get() == "Ray":
         if axis is None:
             futures = [[put_func(df1), put_func(df2)]]
@@ -136,6 +139,7 @@ def test_from_partitions(axis, index, columns, row_lengths, column_widths):
             futures = [put_func([df1, df2], hash=False)]
         else:
             futures = put_func([df1, df2], hash=False)
+    print("put objects.")
     print("starting from_partitions...")
     actual_df = from_partitions(
         futures,
@@ -146,11 +150,7 @@ def test_from_partitions(axis, index, columns, row_lengths, column_widths):
         column_widths=column_widths,
     )
     print("finished from_partitions.")
-    # if axis is None:
-    #     ray.get(futures[0])
-    # else:
-    #     ray.get(futures)
-    # print("got all futures")
+    print(f"available resources before df_equals: {ray.available_resources()}")
     df_equals(expected_df, actual_df)
 
 
