@@ -35,5 +35,14 @@ jobs:
           conda info
           conda list
       - name: Internals tests
-        run: python -m pytest -n 2 modin/test/test_partition_api.py
+        run: python -m pytest modin/core/execution/dispatching/factories/test/test_dispatcher.py modin/experimental/cloud/test/test_cloud.py
+      - run: python -m pytest modin/config/test
+      - run: python -m pytest modin/test/test_envvar_catcher.py
+      - run: python -m pytest modin/test/storage_formats/base/test_internals.py
+      - run: python -m pytest modin/test/storage_formats/pandas/test_internals.py
+      - run: python -m pytest modin/test/test_envvar_npartitions.py
+      - run: python -m pytest -n 2 modin/test/test_partition_api.py
+      - run: python -m pytest modin/test/test_utils.py
+      - run: python -m pytest asv_bench/test/test_utils.py
+      - run: python -m pytest modin/test/exchange/dataframe_protocol/base
       - uses: codecov/codecov-action@v2
