@@ -14,7 +14,6 @@
 import numpy as np
 import pandas
 import pytest
-import time
 
 import modin.pandas as pd
 from modin.distributed.dataframe.pandas import unwrap_partitions, from_partitions
@@ -104,16 +103,6 @@ def test_unwrap_partitions(axis):
 @pytest.mark.parametrize("index", [None, "index"])
 @pytest.mark.parametrize("axis", [None, 0, 1])
 def test_from_partitions(axis, index, columns, row_lengths, column_widths):
-    (
-        original_axis,
-        original_index,
-        original_columns,
-        original_row_lengths,
-        original_column_widths,
-    ) = (axis, index, columns, row_lengths, column_widths)
-    print(
-        f"test from_partitions with axis {axis}, index {index}, columns {columns}, row_lengths {row_lengths}, column_widths {column_widths}"
-    )
     num_rows = 2**16
     num_cols = 2**8
     data = np.random.randint(0, 100, size=(num_rows, num_cols))
@@ -157,11 +146,12 @@ def test_from_partitions(axis, index, columns, row_lengths, column_widths):
         column_widths=column_widths,
     )
     print("finished from_partitions.")
+    if axis is None:
+        ray.get(futures[0], num_returns=2)
+    else:
+        ray.get(futures, num_returns=2)
+    print("got all futures")
     df_equals(expected_df, actual_df)
-    ray.timeline(
-        f"slow_test_partition_api_timelines/test_from_partitions[{original_axis}-{original_index}-{original_columns}-{original_row_lengths}-{original_column_widths}].json"
-    )
-    time.sleep(5)
 
 
 @pytest.mark.parametrize("columns", ["original_col", "new_col"])
