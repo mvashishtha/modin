@@ -146,11 +146,11 @@ def test_from_partitions(axis, index, columns, row_lengths, column_widths):
         column_widths=column_widths,
     )
     print("finished from_partitions.")
-    if axis is None:
-        ray.get(futures[0], num_returns=2)
-    else:
-        ray.get(futures, num_returns=2)
-    print("got all futures")
+    # if axis is None:
+    #     ray.get(futures[0])
+    # else:
+    #     ray.get(futures)
+    # print("got all futures")
     df_equals(expected_df, actual_df)
 
 
