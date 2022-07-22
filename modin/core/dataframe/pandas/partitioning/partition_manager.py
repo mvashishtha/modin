@@ -28,6 +28,8 @@ from modin.error_message import ErrorMessage
 from modin.core.storage_formats.pandas.utils import compute_chunksize
 from modin.core.dataframe.pandas.utils import concatenate
 from modin.config import NPartitions, ProgressBar, BenchmarkMode, Engine, StorageFormat
+from modin.logging import get_logger, ClassLogger
+
 
 import os
 
@@ -78,7 +80,7 @@ def wait_computations_if_benchmark_mode(func):
     return func
 
 
-class PandasDataframePartitionManager(ABC):
+class PandasDataframePartitionManager(ClassLogger, ABC):
     """
     Base class for managing the dataframe data layout and operators across the distribution of partitions.
 
@@ -639,28 +641,63 @@ class PandasDataframePartitionManager(ABC):
         pandas.DataFrame
             A pandas DataFrame
         """
-        retrieved_objects = [[obj.to_pandas() for obj in part] for part in partitions]
+        logger = get_logger()
+        logger_level = getattr(logger, "info")
+        logger_level(
+            f"PandasDataframePartitionManager::to_pandas: to_pandas() with partitions of len {len(partitions)} and rows of len {None if len(partitions) == 0 else len(partitions[0])}"
+        )
+        retrieved_objects = []
+        for row_index, row in enumerate(partitions):
+            retrieved_row = []
+            retrieved_objects.append(retrieved_row)
+            for col_index, part in enumerate(row):
+                logger_level(
+                    f"PandasDataframePartitionManager::to_pandas: START getting part at row {row_index} and col {col_index} with {part._length_cache=} and {part._width_cache=}"
+                )
+                retrieved_object = part.to_pandas()
+                logger_level(
+                    f"PandasDataframePartitionManager::to_pandas: END getting part at row {row_index} and col {col_index}"
+                )
+                retrieved_row.append(retrieved_object)
         if all(
             isinstance(part, pandas.Series) for row in retrieved_objects for part in row
         ):
             axis = 0
+            logger_level(f"PandasDataframePartitionManager::to_pandas: axis = 0")
         elif all(
             isinstance(part, pandas.DataFrame)
             for row in retrieved_objects
             for part in row
         ):
             axis = 1
+            logger_level(f"PandasDataframePartitionManager::to_pandas: axis = 1")
         else:
+            logger_level(
+                f"PandasDataframePartitionManager::to_pandas: error computing axis"
+            )
             ErrorMessage.catch_bugs_and_request_email(True)
         df_rows = [
             pandas.concat([part for part in row], axis=axis)
             for row in retrieved_objects
             if not all(part.empty for part in row)
         ]
+        logger_level(
+            f"PandasDataframePartitionManager::to_pandas: got {len(df_rows)} rows"
+        )
         if len(df_rows) == 0:
+            logger_level(
+                f"PandasDataframePartitionManager::to_pandas: returning empty dataframe"
+            )
             return pandas.DataFrame()
         else:
-            return concatenate(df_rows)
+            logger_level(
+                f"PandasDataframePartitionManager::to_pandas: starting concatenate"
+            )
+            result = concatenate(df_rows)
+            logger_level(
+                f"PandasDataframePartitionManager::to_pandas: got concat result"
+            )
+            return result
 
     @classmethod
     def to_numpy(cls, partitions, **kwargs):

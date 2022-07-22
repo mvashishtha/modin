@@ -20,6 +20,7 @@ from ray.util import get_node_ip_address
 import uuid
 from modin.core.execution.ray.common.utils import deserialize, ObjectIDType
 from pandas import DataFrame
+from packaging import version
 
 from modin.core.dataframe.pandas.partitioning.partition import PandasDataframePartition
 from modin.pandas.indexing import compute_sliced_len
@@ -125,7 +126,7 @@ class PandasOnRayDataframePartition(PandasDataframePartition):
         call_queue = self.call_queue + [(func, args, kwargs)]
         if len(call_queue) > 1:
             logger.debug(f"SUBMIT::_apply_list_of_funcs::{self._identity}")
-            result, length, width, ip = _apply_list_of_funcs_remotely(oid, call_queue)
+            result, length, width, ip = _apply_list_of_funcs_remotely(data, call_queue)
         else:
             # We handle `len(call_queue) == 1` in a different way because
             # this dramatically improves performance.
@@ -177,7 +178,7 @@ class PandasOnRayDataframePartition(PandasDataframePartition):
                 self._length_cache,
                 self._width_cache,
                 self._ip_cache,
-            ) = _apply_list_of_funcs_remotely(oid, call_queue)
+            ) = _apply_list_of_funcs_remotely(data, call_queue)
         else:
             # We handle `len(call_queue) == 1` in a different way because
             # this dramatically improves performance.

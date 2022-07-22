@@ -14,6 +14,9 @@
 
 """Collection of utility functions for the PandasDataFrame."""
 
+from modin.logging import get_logger
+
+
 import pandas
 from pandas.api.types import union_categoricals
 
@@ -34,8 +37,12 @@ def concatenate(dfs):
     pandas.DataFrame
         A pandas DataFrame.
     """
+
+    logger = get_logger()
+    logger_level = getattr(logger, "info")
     for df in dfs:
         assert df.columns.equals(dfs[0].columns)
+    logger_level(f"utils::concatenate: made it past assertion")
     for i in range(len(dfs[0].columns)):
         if dfs[0].dtypes.iloc[i].name != "category":
             continue
@@ -45,4 +52,7 @@ def concatenate(dfs):
             df.iloc[:, i] = pandas.Categorical(
                 df.iloc[:, i], categories=union.categories
             )
-    return pandas.concat(dfs)
+    logger_level(f"utils::concatenate: iterated through all columns")
+    result = pandas.concat(dfs)
+    logger_level(f"utils::concatenate: got concat result")
+    return result

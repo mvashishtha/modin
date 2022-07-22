@@ -38,7 +38,7 @@ from modin.core.dataframe.base.dataframe.utils import (
 )
 from modin.pandas.indexing import is_range_like
 from modin.pandas.utils import is_full_grab_slice, check_both_not_none
-from modin.logging import ClassLogger
+from modin.logging import ClassLogger, get_logger
 
 
 def lazy_metadata_decorator(apply_axis=None, axis_arg=-1, transpose=False):
@@ -300,6 +300,11 @@ class PandasDataframe(ClassLogger):
         reduce_func = self._build_treereduce_func(0, dtype_builder)
         # For now we will use a pandas Series for the dtypes.
         if len(self.columns) > 0:
+            logger = get_logger()
+            logger_level = getattr(logger, "info")
+            logger_level(
+                f"PandasDataframe::_compute_dtypes: will call to_pandas with {self._row_lengths_cache=} and {self._column_widths_cache=}"
+            )
             dtypes = self.tree_reduce(0, map_func, reduce_func).to_pandas().iloc[0]
         else:
             dtypes = pandas.Series([])
