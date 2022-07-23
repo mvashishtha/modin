@@ -97,7 +97,7 @@ class PyarrowOnRayDataframe(PandasDataframe):
         dtypes.index = column_names
         return dtypes
 
-    def to_pandas(self):
+    def to_pandas(self, for_compute_dtypes: bool = False):
         """
         Convert frame object to a ``pandas.DataFrame``.
 

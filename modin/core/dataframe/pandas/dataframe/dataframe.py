@@ -305,7 +305,11 @@ class PandasDataframe(ClassLogger):
             logger_level(
                 f"PandasDataframe::_compute_dtypes: will call to_pandas with {self._row_lengths_cache=} and {self._column_widths_cache=}"
             )
-            dtypes = self.tree_reduce(0, map_func, reduce_func).to_pandas().iloc[0]
+            dtypes = (
+                self.tree_reduce(0, map_func, reduce_func)
+                .to_pandas(for_compute_dtypes=True)
+                .iloc[0]
+            )
         else:
             dtypes = pandas.Series([])
         # reset name to None because we use "__reduced__" internally
@@ -2849,7 +2853,7 @@ class PandasDataframe(ClassLogger):
         return res
 
     @lazy_metadata_decorator(apply_axis="both")
-    def to_pandas(self):
+    def to_pandas(self, for_compute_dtypes: bool = False):
         """
         Convert this Modin DataFrame to a pandas DataFrame.
 
@@ -2857,7 +2861,7 @@ class PandasDataframe(ClassLogger):
         -------
         pandas.DataFrame
         """
-        df = self._partition_mgr_cls.to_pandas(self._partitions)
+        df = self._partition_mgr_cls.to_pandas(self._partitions, for_compute_dtypes=for_compute_dtypes)
         if df.empty:
             df = pandas.DataFrame(columns=self.columns, index=self.index)
         else:

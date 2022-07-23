@@ -627,7 +627,7 @@ class PandasDataframePartitionManager(ClassLogger, ABC):
             return result
 
     @classmethod
-    def to_pandas(cls, partitions):
+    def to_pandas(cls, partitions, for_compute_dtypes: bool = False):
         """
         Convert NumPy array of PandasDataframePartition to pandas DataFrame.
 
@@ -651,8 +651,10 @@ class PandasDataframePartitionManager(ClassLogger, ABC):
             retrieved_row = []
             retrieved_objects.append(retrieved_row)
             for col_index, part in enumerate(row):
+                cached_len = part.length() if part._length_cache is None else None
+                cached_width = part.width() if part._width_cache is None else None
                 logger_level(
-                    f"PandasDataframePartitionManager::to_pandas: START getting part at row {row_index} and col {col_index} with {part._length_cache=} and {part._width_cache=}"
+                    f"PandasDataframePartitionManager::to_pandas: START getting part at row {row_index} and col {col_index} with {cached_len=} and {cached_width=}"
                 )
                 retrieved_object = part.to_pandas()
                 logger_level(
@@ -693,7 +695,7 @@ class PandasDataframePartitionManager(ClassLogger, ABC):
             logger_level(
                 f"PandasDataframePartitionManager::to_pandas: starting concatenate"
             )
-            result = concatenate(df_rows)
+            result = concatenate(df_rows, for_compute_dtypes=for_compute_dtypes)
             logger_level(
                 f"PandasDataframePartitionManager::to_pandas: got concat result"
             )

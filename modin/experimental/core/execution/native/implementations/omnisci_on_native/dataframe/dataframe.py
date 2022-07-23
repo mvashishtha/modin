@@ -2250,7 +2250,7 @@ class OmnisciOnNativeDataframe(PandasDataframe):
             force_execution_mode=self._force_execution_mode,
         )
 
-    def to_pandas(self):
+    def to_pandas(self,  for_compute_dtypes: bool = False):
         """
         Transform the frame to pandas format.
 

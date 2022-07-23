@@ -21,7 +21,7 @@ import pandas
 from pandas.api.types import union_categoricals
 
 
-def concatenate(dfs):
+def concatenate(dfs, for_compute_dtypes: bool = False):
     """
     Concatenate pandas DataFrames with saving 'category' dtype.
 
@@ -43,15 +43,58 @@ def concatenate(dfs):
     for df in dfs:
         assert df.columns.equals(dfs[0].columns)
     logger_level(f"utils::concatenate: made it past assertion")
-    for i in range(len(dfs[0].columns)):
-        if dfs[0].dtypes.iloc[i].name != "category":
+    logger_level(f"utils::concatenate: getting first df...")
+    first_df = dfs[0]
+    logger_level(f"utils::concatenate: got first df")
+    logger_level(f"utils::concatenate: getting first df columns...")
+    first_df_columns = dfs[0].columns
+    logger_level(f"utils::concatenate: got first df columns.")
+    logger_level(f"utils::concatenate: getting len of first df columns...")
+    first_df_columns_len = len(dfs[0].columns)
+    logger_level(f"utils::concatenate: got len of first df columns.")
+    logger_level(
+        f"utils::concatenate: iterating through all {first_df_columns_len} columns of all {len(dfs)} dfs."
+    )
+    for i in range(first_df_columns_len):
+        logger_level(
+            f"utils::concatenate: getting first_df.dtypes from first_df of shape {first_df.shape}..."
+        )
+        dtypes = first_df.dtypes
+        logger_level(f"utils::concatenate: got first_df.dtypes.")
+        logger_level(
+            f"utils::concatenate: getting dtype {i} from dtypes of len {len(dtypes)}..."
+        )
+        ith_dtype = first_df.dtypes.iloc[i]
+        logger_level(
+            f"utils::concatenate: got dtype {i} from dtypes of len {len(dtypes)}."
+        )
+        logger_level(
+            f"utils::concatenate: getting dtype {i} name for dtype {ith_dtype}..."
+        )
+        ith_dtype_name = ith_dtype.name
+        logger_level(
+            f"utils::concatenate: got dtype {i} name {ith_dtype_name} for dtype {ith_dtype}."
+        )
+        if ith_dtype_name != "category":
+            logger_level(
+                f"utils::concatenate: continuing because ith_dtype_name is not category."
+            )
             continue
+        logger_level(
+            f"utils::concatenate: not continuing because ith_dtype_name is category."
+        )
         columns = [df.iloc[:, i] for df in dfs]
+        logger_level(f"utils::concatenate: got all columns {i}.")
         union = union_categoricals(columns)
-        for df in dfs:
+        logger_level(f"utils::concatenate: got union of all columns {i}.")
+        for df_index, df in enumerate(dfs):
+            logger_level(
+                f"utils::concatenate: replacing column {i} in df {df_index}..."
+            )
             df.iloc[:, i] = pandas.Categorical(
                 df.iloc[:, i], categories=union.categories
             )
+            logger_level(f"utils::concatenate: replaced column {i} in df {df_index}...")
     logger_level(f"utils::concatenate: iterated through all columns")
     result = pandas.concat(dfs)
     logger_level(f"utils::concatenate: got concat result")
