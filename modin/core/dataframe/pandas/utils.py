@@ -55,7 +55,7 @@ def concatenate(dfs, for_compute_dtypes: bool = False):
     logger_level(
         f"utils::concatenate: iterating through all {first_df_columns_len} columns of all {len(dfs)} dfs."
     )
-    for i in df.columns.get_indexer_for(df.select_dtypes("category")):
+    for i in df.columns.get_indexer_for(df.select_dtypes("category").columns):
         columns = [df.iloc[:, i] for df in dfs]
         logger_level(f"utils::concatenate: got all columns {i}.")
         union = union_categoricals(columns)
