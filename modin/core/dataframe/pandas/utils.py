@@ -55,34 +55,7 @@ def concatenate(dfs, for_compute_dtypes: bool = False):
     logger_level(
         f"utils::concatenate: iterating through all {first_df_columns_len} columns of all {len(dfs)} dfs."
     )
-    for i in range(first_df_columns_len):
-        logger_level(
-            f"utils::concatenate: getting first_df.dtypes from first_df of shape {first_df.shape}..."
-        )
-        dtypes = first_df.dtypes
-        logger_level(f"utils::concatenate: got first_df.dtypes.")
-        logger_level(
-            f"utils::concatenate: getting dtype {i} from dtypes of len {len(dtypes)}..."
-        )
-        ith_dtype = first_df.dtypes.iloc[i]
-        logger_level(
-            f"utils::concatenate: got dtype {i} from dtypes of len {len(dtypes)}."
-        )
-        logger_level(
-            f"utils::concatenate: getting dtype {i} name for dtype {ith_dtype}..."
-        )
-        ith_dtype_name = ith_dtype.name
-        logger_level(
-            f"utils::concatenate: got dtype {i} name {ith_dtype_name} for dtype {ith_dtype}."
-        )
-        if ith_dtype_name != "category":
-            logger_level(
-                f"utils::concatenate: continuing because ith_dtype_name is not category."
-            )
-            continue
-        logger_level(
-            f"utils::concatenate: not continuing because ith_dtype_name is category."
-        )
+    for i in df.columns.get_indexer_for(df.select_dtypes("category")):
         columns = [df.iloc[:, i] for df in dfs]
         logger_level(f"utils::concatenate: got all columns {i}.")
         union = union_categoricals(columns)
