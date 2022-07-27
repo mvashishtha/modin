@@ -107,6 +107,7 @@ class Rolling(object):
             method,
         ]
         self.axis = axis
+        self.window = window
 
     def count(self):
         return self._dataframe.__constructor__(
@@ -118,7 +119,7 @@ class Rolling(object):
     def sum(self, *args, **kwargs):
         return self._dataframe.__constructor__(
             query_compiler=self._query_compiler.rolling_sum(
-                self.axis, self.rolling_args, *args, **kwargs
+                axis=self.axis, window=self.window, rolling_args=self.rolling_args, *args, **kwargs
             )
         )
 
