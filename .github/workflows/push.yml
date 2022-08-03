@@ -54,6 +54,8 @@ jobs:
         run: |
           sudo docker pull postgres
           sudo docker run --name some-postgres -e POSTGRES_USER=sa -e POSTGRES_PASSWORD=Strong.Pwd-123 -e POSTGRES_DB=postgres -d -p 2345:5432 postgres
+      - run: chmod +x ./.github/workflows/sql_server/set_up_sql_server.sh
+      - run: ./.github/workflows/sql_server/set_up_sql_server.sh          
       - name: Setup upterm session
         uses: lhotari/action-upterm@v1            
       - uses: codecov/codecov-action@v2
