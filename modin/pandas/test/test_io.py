@@ -47,6 +47,7 @@ import sqlalchemy as sa
 import csv
 import tempfile
 from typing import Dict
+import time
 
 from .utils import (
     check_file_leaks,
@@ -2036,6 +2037,7 @@ class TestSql:
         reason="Skip the test when the test SQL server is not set up.",
     )
     def test_read_sql_from_sql_server(self):
+        print(f"test_read_sql_from_sql_server starting at {time.time()}...")
         table_name = "test_1000x256"
         query = f"SELECT * FROM {table_name}"
         sqlalchemy_connection_string = (
@@ -2046,21 +2048,40 @@ class TestSql:
                 1000 * 256,
             ).reshape(1000, 256)
         ).add_prefix("col")
+        print(
+            f"test_read_sql_from_sql_server starting pandas_df_to_read.to_sql at {time.time()}..."
+        )
         pandas_df_to_read.to_sql(
             table_name, sqlalchemy_connection_string, if_exists="replace"
         )
+        print(
+            f"test_read_sql_from_sql_server finished pandas_df_to_read.to_sql at {time.time()}."
+        )
+        print(f"test_read_sql_from_sql_server starting pd.read_sql at {time.time()}...")
         modin_df = pd.read_sql(
             query,
             ModinDatabaseConnection("sqlalchemy", sqlalchemy_connection_string),
         )
+        print(f"test_read_sql_from_sql_server finished pd.read_sql at {time.time()}.")
+        print(
+            f"test_read_sql_from_sql_server starting pandas.read_sql at {time.time()}..."
+        )
         pandas_df = pandas.read_sql(query, sqlalchemy_connection_string)
+        print(
+            f"test_read_sql_from_sql_server finished pandas.read_sql at {time.time()}."
+        )
+        print(f"test_read_sql_from_sql_server starting df_equals at {time.time()}...")
         df_equals(modin_df, pandas_df)
+        print(f"test_read_sql_from_sql_server finished df_equals at {time.time()}.")
+
+        print(f"test_read_sql_from_sql_server finished at {time.time()}.")
 
     @pytest.mark.skipif(
         not TestReadFromPostgres.get(),
         reason="Skip the test when the postgres server is not set up.",
     )
     def test_read_sql_from_postgres(self):
+        print(f"test_read_sql_from_postgres starting at {time.time()}...")
         table_name = "test_1000x256"
         query = f"SELECT * FROM {table_name}"
         connection = "postgresql://sa:Strong.Pwd-123@localhost:2345/postgres"
@@ -2069,13 +2090,29 @@ class TestSql:
                 1000 * 256,
             ).reshape(1000, 256)
         ).add_prefix("col")
+        print(
+            f"test_read_sql_from_postgres starting pandas_df_to_read.to_sql at {time.time()}..."
+        )
         pandas_df_to_read.to_sql(table_name, connection, if_exists="replace")
+        print(
+            f"test_read_sql_from_postgres finished pandas_df_to_read.to_sql at {time.time()}."
+        )
+        print(f"test_read_sql_from_postgres starting pd.read_sql at {time.time()}...")
         modin_df = pd.read_sql(
             query,
             ModinDatabaseConnection("psycopg2", connection),
         )
+        print(f"test_read_sql_from_postgres finished pd.read_sql at {time.time()}.")
+        print(
+            f"test_read_sql_from_postgres starting pandas.read_sql at {time.time()}..."
+        )
         pandas_df = pandas.read_sql(query, connection)
+        print(f"test_read_sql_from_postgres finished pandas.read_sql at {time.time()}.")
+        print(f"test_read_sql_from_postgres starting df_equals at {time.time()}...")
         df_equals(modin_df, pandas_df)
+        print(f"test_read_sql_from_postgres finished df_equals at {time.time()}.")
+
+        print(f"test_read_sql_from_postgres finished at {time.time()}.")
 
     def test_invalid_modin_database_connections(self):
         with pytest.raises(UnsupportedDatabaseException):
