@@ -2,6 +2,7 @@ name: master
 on: push
 jobs:
   test-all:
+    timeout-minutes: 120
     runs-on: ubuntu-latest
     defaults:
       run:
