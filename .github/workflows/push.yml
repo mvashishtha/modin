@@ -33,9 +33,15 @@ jobs:
       MODIN_ENGINE: ${{matrix.engine}}
     name: test-windows
     steps:
-      - name: Limit ray memory
-        run: echo "MODIN_MEMORY=1000000000" >> $GITHUB_ENV
-        if: matrix.engine == 'ray'
+      - name: Start local ray cluster
+        run: |
+          ray start --head --port=6379 --object-store-memory=1000000000
+          while [ $? -ne 0 ]; do
+            echo "Failed to start ray cluster. retrying..."
+            ray start --head --port=6379 --object-store-memory=1000000000
+          done          
+          echo "MODIN_RAY_CLUSTER=True" >> $GITHUB_ENV
+        if: matrix.engine == 'ray'        
       - uses: actions/checkout@v2
         with:
           fetch-depth: 2
@@ -67,6 +73,5 @@ jobs:
       - timeout-minutes: 30
         run: python -m pytest modin/pandas/test/test_io.py
         if: matrix.test-task == 'modin/pandas/test/test_io.py'
-      - uses: codecov/codecov-action@v2
 
  
