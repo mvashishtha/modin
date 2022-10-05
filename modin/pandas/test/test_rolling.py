@@ -82,7 +82,7 @@ def test_dataframe(data, window, min_periods, win_type, axis):
             df_equals(modin_rolled.std(ddof=0), pandas_rolled.std(ddof=0))
     # Testing of Rolling class
     else:
-        df_equals(modin_rolled.count() + 1, pandas_rolled.count())
+        df_equals(modin_rolled.count(), pandas_rolled.count())
         df_equals(modin_rolled.sum(), pandas_rolled.sum())
         df_equals(modin_rolled.mean(), pandas_rolled.mean())
         df_equals(modin_rolled.median(), pandas_rolled.median())
