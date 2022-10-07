@@ -739,7 +739,7 @@ jobs:
         if: matrix.engine == 'ray'
       - name: Start local ray cluster
         run: |
-          ray start --head --port=6379 --object-store-memory=1000000000
+          ray start --head --port=6379 --object-store-memory=1000000000 --include-dashboard=False
           echo "MODIN_RAY_CLUSTER=True" >> $GITHUB_ENV
         if: matrix.engine == 'ray'
       - run: pytest -n ${{ env.PYTEST_DIST_WORKERS }} modin/pandas/test/dataframe/test_binary.py

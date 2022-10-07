@@ -61,10 +61,10 @@ jobs:
           conda list
       - name: Start local ray cluster
         run: |
-          ray start --head --port=6379 --object-store-memory=1000000000
+          ray start --head --port=6379 --object-store-memory=1000000000 --include-dashboard=False
           while [ $? -ne 0 ]; do
             echo "Failed to start ray cluster. retrying..."
-            ray start --head --port=6379 --object-store-memory=1000000000
+            ray start --head --port=6379 --object-store-memory=1000000000 --include-dashboard=False
           done          
           echo "MODIN_RAY_CLUSTER=True" >> $GITHUB_ENV
         if: matrix.engine == 'ray'            
