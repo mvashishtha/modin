@@ -122,9 +122,7 @@ class CategoryMethods(ClassLogger):
         object
             Result of operation.
         """
-        return self._series._default_to_pandas(
-            lambda series: op(series.cat, *args, **kwargs)
-        )
+        raise NotImplementedError(f"Groupby method not implemented.")
 
 
 @_inherit_docstrings(pandas.core.strings.StringMethods)
@@ -457,9 +455,7 @@ class StringMethods(ClassLogger):
         object
             Result of operation.
         """
-        return self._series._default_to_pandas(
-            lambda series: op(series.str, *args, **kwargs)
-        )
+        raise NotImplementedError(f"{op} not implemented.")
 
 
 @_inherit_docstrings(pandas.core.indexes.accessors.CombinedDatetimelikeProperties)

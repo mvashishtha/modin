@@ -234,8 +234,7 @@ class DefaultMethod(Operator):
         fn.__name__ = f"<function {cls.OBJECT_TYPE}.{fn_name}>"
 
         def wrapper(self, *args, **kwargs):
-            """Do fallback to pandas for the specified function."""
-            return self.default_to_pandas(fn, *args, **kwargs)
+            raise NotImplementedError("pandas method or function not implemented yet.")
 
         return wrapper
 

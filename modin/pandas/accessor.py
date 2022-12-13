@@ -80,9 +80,7 @@ class BaseSparseAccessor(ClassLogger):
         object
             Result of operation.
         """
-        return self._parent._default_to_pandas(
-            lambda parent: op(parent.sparse, *args, **kwargs)
-        )
+        raise NotImplementedError("Function or method not implemented.")
 
 
 @_inherit_docstrings(pandas.core.arrays.sparse.accessor.SparseFrameAccessor)

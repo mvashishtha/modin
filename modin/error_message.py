@@ -49,26 +49,7 @@ class ErrorMessage(object):
 
     @classmethod
     def default_to_pandas(cls, message="", reason=""):
-        if message != "":
-            execution_str = get_current_execution()
-            message = (
-                f"{message} is not currently supported by {execution_str}, "
-                + "defaulting to pandas implementation."
-            )
-        else:
-            message = "Defaulting to pandas implementation."
-
-        if not cls.printed_default_to_pandas:
-            message = (
-                f"{message}\n"
-                + "Please refer to "
-                + "https://modin.readthedocs.io/en/stable/supported_apis/defaulting_to_pandas.html for explanation."
-            )
-            cls.printed_default_to_pandas = True
-        if reason:
-            message += f"\nReason: {reason}"
-        get_logger().debug(f"Modin Warning: Default to pandas: {message}")
-        warnings.warn(message)
+        raise NotImplementedError("Function or method not implemented.")
 
     @classmethod
     def catch_bugs_and_request_email(cls, failure_condition, extra_log=""):

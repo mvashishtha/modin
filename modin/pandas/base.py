@@ -404,14 +404,7 @@ class BasePandasDataset(BasePandasDatasetCompat):
         object
             Result of operation.
         """
-        empty_self_str = "" if not self.empty else " for empty DataFrame"
-        ErrorMessage.default_to_pandas(
-            "`{}.{}`{}".format(
-                type(self).__name__,
-                op if isinstance(op, str) else op.__name__,
-                empty_self_str,
-            )
-        )
+        raise NotImplementedError(f"Function or method {op} not implemented.")
 
         args = try_cast_to_pandas(args)
         kwargs = try_cast_to_pandas(kwargs)
@@ -3431,7 +3424,9 @@ class BasePandasDataset(BasePandasDatasetCompat):
             if callable(attr) and self.empty and hasattr(self._pandas_class, item):
 
                 def default_handler(*args, **kwargs):
-                    return self._default_to_pandas(item, *args, **kwargs)
+                    raise NotImplementedError(
+                        "pandas method or function not implemented yet."
+                    )
 
                 return default_handler
         return attr
