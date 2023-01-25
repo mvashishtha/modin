@@ -21,10 +21,32 @@ from pandas.core.computation.parsing import tokenize_string
 from typing import Any
 
 
+class ModinClientIndexWrapper:
+    def __init__(self, service_index, value_container_class):
+        self._service_index = service_index
+        self._service_index_getitem = service_index.__getitem__
+        self._value_container_class = value_container_class
+
+    def __getitem__(self, *args, **kwargs):
+        result = self._service_index_getitem(self._service_index, *args, **kwargs)
+        if isinstance(result, self._value_container_class):
+            return result.value
+        return result
+
+    def getattr(self, attr):
+        attr = getattr(self._service_index, attr)
+        if not callable(attr):
+            return attr
+
+
 class ClientQueryCompiler(BaseQueryCompiler):
     @classmethod
     def set_server_connection(cls, conn):
         cls._service = conn
+
+    @classmethod
+    def set_value_container(cls, value_container_class):
+        cls._value_container_class = value_container_class
 
     def __init__(self, id):
         assert (
@@ -47,7 +69,9 @@ class ClientQueryCompiler(BaseQueryCompiler):
         self._id = self._service.rename(self._id, new_row_labels=new_index)
 
     def _get_index(self):
-        return self._service.index(self._id)
+        breakpoint()
+        index_from_service = self._service.index(self._id)
+        return ModinClientIndexWrapper(index_from_service, self._value_container_class)
 
     columns = property(_get_columns, _set_columns)
     _columns_cache = None
