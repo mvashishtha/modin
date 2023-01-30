@@ -2340,7 +2340,7 @@ class Series(SeriesCompat, BasePandasDataset):
             # NB: if we don't need a rename, do the interaction with shallow
             # copies so that we preserve obj.index._id. It's fine to work
             # with shallow copies because we'll discard the copies but keep
-            # the result after the interaction opreation. We can't do a rename
+            # the result after the interaction operation. We can't do a rename
             # on shallow copies because we'll mutate the original objects.
             new_self = self.copy(deep=names_different)
             new_other = other.copy(deep=names_different)
