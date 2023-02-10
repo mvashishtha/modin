@@ -1705,7 +1705,7 @@ class BasePandasDataset(BasePandasDatasetCompat):
         Select final periods of time series data based on a date offset.
         """
         return self._create_or_update_from_compiler(
-            self._query_compiler.time_index_last(to_offset(offset))
+            self._query_compiler.last(to_offset(offset))
         )
 
     def last_valid_index(self):  # noqa: RT01, D200
