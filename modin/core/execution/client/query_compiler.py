@@ -35,6 +35,12 @@ class ClientQueryCompiler(BaseQueryCompiler):
         self._id = id
 
     def _set_columns(self, new_columns):
+        # N.B. almost every query compiler method creates a new compiler, but index and
+        # columns are mutable properties of every query compiler, including the one
+        # we're using in our service now. The service interface allows updating columns
+        # and index in place with set_columns() and set_index(). Maybe in the future
+        # we'd want to cache service results by query compiler ID, in which case
+        # mutating a backend query compiler would not be allowed.
         self._service.set_columns(self._id, new_columns)
         self._columns_cache = self._service.columns(self._id)
 
