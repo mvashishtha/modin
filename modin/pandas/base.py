@@ -2992,7 +2992,9 @@ class BasePandasDataset(BasePandasDatasetCompat):
     ):
         if subset is None:
             subset = self._query_compiler.columns
-        counted_values = self.groupby(by=subset, dropna=dropna, observed=True).size()
+        counted_values = self.groupby(
+            by=subset, dropna=dropna, observed=True, sort=sort
+        ).size()
         if sort:
             counted_values.sort_values(ascending=ascending, inplace=True)
         if normalize:
