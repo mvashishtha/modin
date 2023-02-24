@@ -550,16 +550,13 @@ def _set_forwarding_method_for_binary_function(method_name: str) -> None:
     def forwarding_method(
         self: ClientQueryCompiler,
         other: Any,
-        *args,
         **kwargs,
     ):
         other_is_qc = isinstance(other, type(self))
         if other_is_qc:
             other = other._id
         return self.__constructor__(
-            getattr(self._service, method_name)(
-                self._id, other, other_is_qc, *args, **kwargs
-            )
+            getattr(self._service, method_name)(self._id, other, other_is_qc, **kwargs)
         )
 
     setattr(ClientQueryCompiler, method_name, forwarding_method)
@@ -640,7 +637,6 @@ _BINARY_FORWARDING_METHODS = frozenset(
         "align",
         "series_corr",
         "divmod",
-        "reindex_like",
         "rdivmod",
         "corrwith" "merge_ordered",
     }
