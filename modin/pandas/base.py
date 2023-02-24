@@ -2116,7 +2116,9 @@ class BasePandasDataset(BasePandasDatasetCompat):
         """
         Return an object with matching indices as `other` object.
         """
-        return self._query_compiler.reindex_like(other, method, copy, limit, tolerance)
+        return self._query_compiler.reindex_like(
+            other._query_compiler, method, copy, limit, tolerance
+        )
 
     def rename_axis(
         self, mapper=None, index=None, columns=None, axis=None, copy=True, inplace=False
