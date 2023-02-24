@@ -2510,7 +2510,7 @@ class DataFrame(DataFrameCompat, BasePandasDataset):
     def reindex_like(
         self: "DataFrame",
         other,
-        method: str | None = None,
+        method: Optional[str] = None,
         copy: bool = True,
         limit=None,
         tolerance=None,
