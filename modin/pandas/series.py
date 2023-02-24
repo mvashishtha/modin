@@ -2116,7 +2116,7 @@ class Series(SeriesCompat, BasePandasDataset):
     def reindex_like(
         self: "Series",
         other,
-        method: Optional[str] = None,
+        method=None,
         copy: bool = True,
         limit=None,
         tolerance=None,
