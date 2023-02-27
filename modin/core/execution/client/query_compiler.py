@@ -924,6 +924,7 @@ _SINGLE_ID_FORWARDING_METHODS = frozenset(
         "first",
         "tz_convert",
         "tz_localize",
+        "shift",
     }
 )
 
