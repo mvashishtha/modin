@@ -301,7 +301,7 @@ class LatestCompatibleBasePandasDataset(BaseCompatibleBasePandasDataset):
             nan_values = dict()
             for name, dtype in dict(self.dtypes).items():
                 nan_values[name] = (
-                    pandas.NAT if is_datetime_or_timedelta_dtype(dtype) else pandas.NA
+                    pandas.NaT if is_datetime_or_timedelta_dtype(dtype) else pandas.NA
                 )
 
             fill_value = nan_values
