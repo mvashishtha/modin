@@ -746,7 +746,9 @@ class DataFrame(BasePandasDataset):
         Compute pairwise correlation.
         """
         return self.__constructor__(
-            query_compiler=self._query_compiler.corrwith(other, axis, drop, method, numeric_only)
+            query_compiler=self._query_compiler.corrwith(
+                other, axis, drop, method, numeric_only
+            )
         )
 
     def cov(
@@ -1457,26 +1459,10 @@ class DataFrame(BasePandasDataset):
         if periods == 0:
             return self.copy()
 
-        if axis == "index" or axis == 0:
-            if abs(periods) >= len(self.index):
-                return DataFrame(columns=self.columns)
-            else:
-                new_df = self.iloc[:-periods] if periods > 0 else self.iloc[-periods:]
-                new_df.index = (
-                    self.index[periods:] if periods > 0 else self.index[:periods]
-                )
-                return new_df
-        else:
-            if abs(periods) >= len(self.columns):
-                return DataFrame(index=self.index)
-            else:
-                new_df = (
-                    self.iloc[:, :-periods] if periods > 0 else self.iloc[:, -periods:]
-                )
-                new_df.columns = (
-                    self.columns[periods:] if periods > 0 else self.columns[:periods]
-                )
-                return new_df
+        return self._create_or_update_from_compiler(
+            new_query_compiler=self._query_compiler.slice_shift(periods, axis),
+            inplace=False,
+        )
 
     def unstack(self, level=-1, fill_value=None):  # noqa: PR01, RT01, D200
         """
