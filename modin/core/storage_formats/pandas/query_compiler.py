@@ -1329,8 +1329,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 raw,
                 engine,
                 engine_kwargs,
-                *args,#*args if args is not None else tuple(),
-                **kwargs,#**kwargs if kwargs is not None else {},
+                args,#*args if args is not None else tuple(),
+                kwargs,#**kwargs if kwargs is not None else {},
             )
 
     old_rolling_quantile = Fold.register(
