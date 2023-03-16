@@ -1353,6 +1353,13 @@ class PandasQueryCompiler(BaseQueryCompiler):
         else:
             return self.old_rolling_quantile(axis, rolling_args, quantile, interpolation, **kwargs)
 
+    old_rolling_corr = Fold.register(
+        lambda df, rolling_args, other, pairwise, *args, **kwargs: pandas.DataFrame(
+            df.rolling(*rolling_args).corr(
+                other=other, pairwise=pairwise, *args, **kwargs
+                )
+            )
+        )
 
     def rolling_corr(self, axis, window, rolling_args, other, pairwise, *args, **kwargs):
         if len(self.columns) > 1:
@@ -1362,14 +1369,6 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 )
             )
         else:
-            old_rolling_corr = Fold.register(
-                lambda df: pandas.DataFrame(
-                    df.rolling(*rolling_args).corr(
-                        other=other, pairwise=pairwise, *args, **kwargs
-                    )
-                )
-            )
-
             center = rolling_args[2]
 
             if not center and isinstance(window, int):
@@ -1382,7 +1381,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
                     )
                 )
             else:
-                return old_rolling_corr(axis, rolling_args, other, pairwise, *args, **kwargs)(self, axis) 
+                return self.old_rolling_corr(axis, rolling_args, other, pairwise, *args, **kwargs)(self, axis) 
 
     def rolling_cov(self, axis, window, rolling_args, other, pairwise, ddof, **kwargs):
         if len(self.columns) > 1:
