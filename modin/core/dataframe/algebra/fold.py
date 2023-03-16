@@ -57,6 +57,7 @@ class Fold(Operator):
                 A new query compiler representing the result of executing the
                 function.
             """
+
             return query_compiler.__constructor__(
                 query_compiler._modin_frame.fold(
                     cls.validate_axis(fold_axis),
