@@ -94,7 +94,7 @@ def _read(**kwargs):
             query_compiler=reader(*args, **kwargs)
         )
         return pd_obj
-    result = DataFrame(query_compiler=pd_obj)
+    result = pd_obj
     if squeeze:
         return result.squeeze(axis=1)
     return result
@@ -620,12 +620,20 @@ def read_sql(
     """
     Read SQL query or database table into a DataFrame.
     """
-    _, _, _, kwargs = inspect.getargvalues(inspect.currentframe())
-
     Engine.subscribe(_update_engine)
     from modin.core.execution.dispatching.factories.dispatcher import FactoryDispatcher
 
-    return DataFrame(query_compiler=FactoryDispatcher.read_sql(**kwargs))
+    # somehow getting an error that '_' is in the kwargs.
+    return FactoryDispatcher.read_sql(
+        sql=sql,
+        con=con,
+        index_col=index_col,
+        coerce_float=coerce_float,
+        params=params,
+        parse_dates=parse_dates,
+        columns=columns,
+        chunksize=chunksize,
+    )
 
 
 @_inherit_docstrings(pandas.read_fwf, apilink="pandas.read_fwf")
