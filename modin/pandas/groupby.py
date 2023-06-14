@@ -90,6 +90,7 @@ class DataFrameGroupBy(ClassLogger):
         group_keys,
         idx_name,
         drop,
+        _modin_series_name=no_default,
         **kwargs,
     ):
         self._axis = axis
@@ -134,6 +135,7 @@ class DataFrameGroupBy(ClassLogger):
             "group_keys": group_keys,
         }
         self._kwargs.update(kwargs)
+        self._modin_series_name = _modin_series_name
 
     def __override(self, **kwargs):
         new_kw = dict(
@@ -667,14 +669,6 @@ class DataFrameGroupBy(ClassLogger):
         #   - drop: any, as_index: False, __getitem__(key: any) -> DataFrameGroupBy
         #   - drop: any, as_index: True, __getitem__(key: label) -> SeriesGroupBy
         if is_list_like(key):
-            make_dataframe = True
-        else:
-            if self._as_index:
-                make_dataframe = False
-            else:
-                make_dataframe = True
-                key = [key]
-        if make_dataframe:
             internal_by = frozenset(self._internal_by)
             if len(internal_by.intersection(key)) != 0:
                 ErrorMessage.missmatch_with_pandas(
@@ -712,6 +706,7 @@ class DataFrameGroupBy(ClassLogger):
         return SeriesGroupBy(
             self._df[key],
             drop=False,
+            _modin_series_name=key,
             **kwargs,
         )
 
@@ -1835,6 +1830,63 @@ class SeriesGroupBy(DataFrameGroupBy):
             )
 
     agg = aggregate
+
+    def _default_to_pandas(self, f, *args, **kwargs):
+        """
+        Execute function `f` in default-to-pandas way.
+
+        Parameters
+        ----------
+        f : callable or str
+            The function to apply to each group.
+        *args : list
+            Extra positional arguments to pass to `f`.
+        **kwargs : dict
+            Extra keyword arguments to pass to `f`.
+
+        Returns
+        -------
+        modin.pandas.DataFrame
+            A new Modin DataFrame with the result of the pandas function.
+        """
+        if (
+            isinstance(self._by, type(self._query_compiler))
+            and len(self._by.columns) == 1
+        ):
+            by = self._by.columns[0] if self._drop else self._by.to_pandas().squeeze()
+        # converting QC 'by' to a list of column labels only if this 'by' comes from the self (if drop is True)
+        elif self._drop and isinstance(self._by, type(self._query_compiler)):
+            by = list(self._by.columns)
+        else:
+            by = self._by
+
+        by = try_cast_to_pandas(by, squeeze=True)
+        # Since 'by' may be a 2D query compiler holding columns to group by,
+        # to_pandas will also produce a pandas DataFrame containing them.
+        # So splitting 2D 'by' into a list of 1D Series using 'GroupBy.validate_by':
+        by = GroupBy.validate_by(by)
+
+        def groupby_on_multiple_columns(series, *args, **kwargs):
+            if self._modin_series_name is not no_default:
+                groupby_obj = series.to_frame().groupby(
+                    by=by, axis=self._axis, **self._kwargs
+                )[self._modin_series_name]
+
+            else:
+                groupby_obj = series.groupby(by=by, axis=self._axis, **self._kwargs)
+
+            if callable(f):
+                return f(groupby_obj, *args, **kwargs)
+            else:
+                ErrorMessage.catch_bugs_and_request_email(
+                    failure_condition=not isinstance(f, str)
+                )
+                attribute = getattr(groupby_obj, f)
+                if callable(attribute):
+                    return attribute(*args, **kwargs)
+                return attribute
+
+        return self._df._default_to_pandas(groupby_on_multiple_columns, *args, **kwargs)
 
 
 if IsExperimental.get():
