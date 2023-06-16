@@ -667,14 +667,6 @@ class DataFrameGroupBy(ClassLogger):
         #   - drop: any, as_index: False, __getitem__(key: any) -> DataFrameGroupBy
         #   - drop: any, as_index: True, __getitem__(key: label) -> SeriesGroupBy
         if is_list_like(key):
-            make_dataframe = True
-        else:
-            if self._as_index:
-                make_dataframe = False
-            else:
-                make_dataframe = True
-                key = [key]
-        if make_dataframe:
             internal_by = frozenset(self._internal_by)
             if len(internal_by.intersection(key)) != 0:
                 ErrorMessage.missmatch_with_pandas(
@@ -1592,7 +1584,15 @@ class DataFrameGroupBy(ClassLogger):
         by = GroupBy.validate_by(by)
 
         def groupby_on_multiple_columns(df, *args, **kwargs):
-            groupby_obj = df.groupby(by=by, axis=self._axis, **self._kwargs)
+            # TypeError: as_index=False only valid with DataFrame
+            # in grp[item]._default_to_pandas(lambda df: df.sum())
+            if isinstance(df, pandas.Series) and not self._kwargs["as_index"]:
+                self._kwargs["as_index"] = True
+                groupby_obj = df.groupby(by=by, axis=self._axis, **self._kwargs)
+                groupby_obj.as_index = False
+                self._kwargs["as_index"] = False
+            else:
+                groupby_obj = df.groupby(by=by, axis=self._axis, **self._kwargs)
 
             if callable(f):
                 return f(groupby_obj, *args, **kwargs)
